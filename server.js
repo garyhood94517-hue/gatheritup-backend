@@ -18,7 +18,7 @@ const supabase = createClient(
 )
 
 // ── Stripe ──────────────────────────────────────────────────────────────────
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({
