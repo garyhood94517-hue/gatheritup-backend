@@ -5,9 +5,11 @@ import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
+import sgMail from '@sendgrid/mail'
 
 dotenv.config()
 
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
 const app = express()
 const PORT = process.env.PORT || 3001
 
@@ -50,6 +52,24 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     const session = event.data.object
     const userId = session.metadata.userId
     console.log('Payment completed for user:', userId)
+    await supabase.from('users').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', userId)
+  }
+  res.json({ received: true })
+})
+
+// ── STRIPE WEBHOOK (must be before express.json) ─────────────────────────────
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature']
+  let event
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
+  } catch (err) {
+    console.error('Webhook error:', err.message)
+    return res.status(400).json({ error: 'Webhook signature failed' })
+  }
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object
+    const userId = session.metadata.userId
     await supabase.from('users').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', userId)
   }
   res.json({ received: true })
@@ -258,18 +278,99 @@ app.post('/api/trustee', authRequired, async (req, res) => {
 })
 
 // ── ADMIN ────────────────────────────────────────────────────────────────────
-app.get('/api/admin/users', async (req, res) => {
+function adminAuth(req, res, next) {
   const key = (req.query.key || req.headers['x-admin-key'] || '').toLowerCase()
   const adminKey = (process.env.ADMIN_KEY || '').toLowerCase()
-  if (key !== adminKey) {
-    return res.status(401).json({ error: 'Unauthorized' })
-  }
+  if (key !== adminKey) return res.status(401).json({ error: 'Unauthorized' })
+  next()
+}
+
+app.get('/api/admin/users', adminAuth, async (req, res) => {
   const { data: users, error } = await supabase
     .from('users')
-    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at')
+    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at, comm_pref')
     .order('created_at', { ascending: false })
   if (error) return res.status(500).json({ error: 'Could not fetch users' })
   res.json(users)
+})
+
+// Change user status
+app.patch('/api/admin/users/:id/status', adminAuth, async (req, res) => {
+  const { id } = req.params
+  const { status } = req.body
+  const validStatuses = ['trial', 'grace', 'paid', 'expired', 'deactivated']
+  if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' })
+  const { error } = await supabase.from('users').update({ status }).eq('id', id)
+  if (error) return res.status(500).json({ error: 'Could not update status' })
+  res.json({ success: true })
+})
+
+// Extend trial
+app.patch('/api/admin/users/:id/extend-trial', adminAuth, async (req, res) => {
+  const { id } = req.params
+  const { days } = req.body
+  const { data: user } = await supabase.from('users').select('trial_end').eq('id', id).single()
+  if (!user) return res.status(404).json({ error: 'User not found' })
+  const newEnd = new Date(user.trial_end)
+  newEnd.setDate(newEnd.getDate() + parseInt(days))
+  const { error } = await supabase.from('users').update({ trial_end: newEnd.toISOString(), status: 'trial' }).eq('id', id)
+  if (error) return res.status(500).json({ error: 'Could not extend trial' })
+  res.json({ success: true, newTrialEnd: newEnd.toISOString() })
+})
+
+// Send password reset email
+app.post('/api/admin/users/:id/reset-password', adminAuth, async (req, res) => {
+  const { id } = req.params
+  const { data: user } = await supabase.from('users').select('email, first_name').eq('id', id).single()
+  if (!user) return res.status(404).json({ error: 'User not found' })
+  
+  // Generate reset token
+  const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  const resetExpiry = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+  
+  await supabase.from('users').update({ reset_token: resetToken, reset_expiry: resetExpiry.toISOString() }).eq('id', id)
+  
+  const resetUrl = \`https://steady-klepon-508c5d.netlify.app/reset-password.html?token=\${resetToken}\`
+  
+  try {
+    await sgMail.send({
+      to: user.email,
+      from: 'support@gatheritup.com',
+      subject: 'Reset Your Gatheritup Password',
+      html: \`<p>Hi \${user.first_name},</p><p>Click the link below to reset your password. This link expires in 1 hour.</p><p><a href="\${resetUrl}">Reset My Password</a></p><p>If you didn't request this, ignore this email.</p><p>— The Gatheritup Team</p>\`
+    })
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Email error:', err)
+    res.status(500).json({ error: 'Could not send email' })
+  }
+})
+
+// Broadcast email to all users
+app.post('/api/admin/broadcast', adminAuth, async (req, res) => {
+  const { subject, message, statusFilter } = req.body
+  if (!subject || !message) return res.status(400).json({ error: 'Subject and message required' })
+  
+  let query = supabase.from('users').select('email, first_name, status')
+  if (statusFilter && statusFilter !== 'all') query = query.eq('status', statusFilter)
+  
+  const { data: users } = await query
+  if (!users || users.length === 0) return res.status(400).json({ error: 'No users found' })
+  
+  const emails = users.map(u => ({
+    to: u.email,
+    from: 'support@gatheritup.com',
+    subject,
+    html: \`<p>Hi \${u.first_name},</p>\${message.replace(/\n/g, '<br>')}<p>— Gary<br>Gatheritup</p>\`
+  }))
+  
+  try {
+    await sgMail.send(emails)
+    res.json({ success: true, sent: emails.length })
+  } catch (err) {
+    console.error('Broadcast error:', err)
+    res.status(500).json({ error: 'Could not send emails' })
+  }
 })
 
 // ── START SERVER ─────────────────────────────────────────────────────────────
