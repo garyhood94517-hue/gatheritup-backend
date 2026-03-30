@@ -24,6 +24,7 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 app.use(cors({
   origin: [
     'https://steady-klepon-508c5d.netlify.app',
+    'https://www.gatheritup.com',
     'http://localhost:5173'
   ]
 }))
@@ -32,25 +33,18 @@ app.use(cors({
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature']
   let event
-
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
   } catch (err) {
     console.error('Webhook error:', err.message)
     return res.status(400).json({ error: 'Webhook signature failed' })
   }
-
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object
     const userId = session.metadata.userId
     console.log('Payment completed for user:', userId)
-
-    await supabase
-      .from('users')
-      .update({ status: 'paid', paid_at: new Date().toISOString() })
-      .eq('id', userId)
+    await supabase.from('users').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', userId)
   }
-
   res.json({ received: true })
 })
 
@@ -254,6 +248,20 @@ app.post('/api/trustee', authRequired, async (req, res) => {
     .eq('id', req.user.id)
 
   res.json({ success: true })
+})
+
+// ── ADMIN ────────────────────────────────────────────────────────────────────
+app.get('/api/admin/users', async (req, res) => {
+  const key = req.headers['x-admin-key']
+  if (key !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at')
+    .order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ error: 'Could not fetch users' })
+  res.json(users)
 })
 
 // ── START SERVER ─────────────────────────────────────────────────────────────
