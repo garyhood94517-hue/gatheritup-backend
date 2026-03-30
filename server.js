@@ -288,10 +288,23 @@ function adminAuth(req, res, next) {
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   const { data: users, error } = await supabase
     .from('users')
-    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at, comm_pref')
+    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at, comm_pref, trustee_name, trustee_email, trustee_activation')
     .order('created_at', { ascending: false })
   if (error) return res.status(500).json({ error: 'Could not fetch users' })
   res.json(users)
+})
+
+// Update trustee info
+app.patch('/api/admin/users/:id/trustee', adminAuth, async (req, res) => {
+  const { id } = req.params
+  const { trusteeName, trusteeEmail, activationMode } = req.body
+  const { error } = await supabase.from('users').update({
+    trustee_name: trusteeName,
+    trustee_email: trusteeEmail,
+    trustee_activation: activationMode
+  }).eq('id', id)
+  if (error) return res.status(500).json({ error: 'Could not update trustee' })
+  res.json({ success: true })
 })
 
 // Change user status
