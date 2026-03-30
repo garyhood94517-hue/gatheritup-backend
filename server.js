@@ -259,9 +259,9 @@ app.post('/api/trustee', authRequired, async (req, res) => {
 
 // ── ADMIN ────────────────────────────────────────────────────────────────────
 app.get('/api/admin/users', async (req, res) => {
-  const key = req.query.key || req.headers['x-admin-key']
-  console.log('KEY:', JSON.stringify(key), 'ENV:', JSON.stringify(process.env.ADMIN_KEY))
-  if (key !== process.env.ADMIN_KEY) {
+  const key = (req.query.key || req.headers['x-admin-key'] || '').toLowerCase()
+  const adminKey = (process.env.ADMIN_KEY || '').toLowerCase()
+  if (key !== adminKey) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
   const { data: users, error } = await supabase
