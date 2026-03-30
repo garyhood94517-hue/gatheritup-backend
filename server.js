@@ -197,14 +197,7 @@ app.post('/api/create-checkout', authRequired, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: 'Gatheritup — Lifetime Access',
-            description: 'One time payment. Keep your memories forever.',
-          },
-          unit_amount: 4995, // $49.95
-        },
+        price: 'price_1TGTlIKwXi134vuWqJ1fNhwF',
         quantity: 1,
       }],
       mode: 'payment',
