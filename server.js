@@ -6,6 +6,9 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import sgMail from '@sendgrid/mail'
+import { v2 as cloudinary } from 'cloudinary'
+import multer from 'multer'
+import { Readable } from 'stream'
 
 dotenv.config()
 
@@ -13,6 +16,14 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY)
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+})
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -143,6 +154,169 @@ app.post('/api/trustee', authRequired, async (req, res) => {
   const { trusteeName, trusteeEmail, activationMode } = req.body
   await supabase.from('users').update({ trustee_name: trusteeName, trustee_email: trusteeEmail, trustee_activation: activationMode }).eq('id', req.user.id)
   res.json({ success: true })
+})
+
+// ── SHARE: Upload media and create share link ─────────────────────────────────
+app.post('/api/share', authRequired, upload.single('media'), async (req, res) => {
+  try {
+    const { title, story, date, isVideo } = req.body
+    const { data: user } = await supabase.from('users').select('first_name, last_name, first_share_sent').eq('id', req.user.id).single()
+
+    // Upload to Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: isVideo === 'true' ? 'video' : 'image',
+          folder: 'gatheritup',
+          eager_async: false,
+        },
+        (error, result) => {
+          if (error) reject(error)
+          else resolve(result)
+        }
+      )
+      Readable.from(req.file.buffer).pipe(stream)
+    })
+
+    // Generate share token and expiry (30 days)
+    const shareToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + 30)
+
+    // Save share record to Supabase
+    const { error: shareError } = await supabase.from('shares').insert({
+      user_id: req.user.id,
+      token: shareToken,
+      media_url: uploadResult.secure_url,
+      media_type: isVideo === 'true' ? 'video' : 'image',
+      title: title || '',
+      story: story || '',
+      memory_date: date || null,
+      sharer_name: user.first_name + ' ' + user.last_name,
+      expires_at: expiresAt.toISOString(),
+    })
+
+    if (shareError) {
+      console.error('Share save error:', shareError)
+      return res.status(500).json({ error: 'Could not save share.' })
+    }
+
+    // Track first share for marketing message
+    const isFirstShare = !user.first_share_sent
+    if (isFirstShare) {
+      await supabase.from('users').update({ first_share_sent: true }).eq('id', req.user.id)
+    }
+
+    const shareUrl = process.env.BACKEND_URL + '/share/' + shareToken
+
+    res.json({ shareUrl, shareToken, expiresAt: expiresAt.toISOString(), isFirstShare })
+  } catch (err) {
+    console.error('Share error:', err)
+    res.status(500).json({ error: 'Could not create share link.' })
+  }
+})
+
+// ── SHARE: View shared memory page ───────────────────────────────────────────
+app.get('/share/:token', async (req, res) => {
+  const { token } = req.params
+  const { data: share } = await supabase.from('shares').select('*').eq('token', token).single()
+
+  if (!share) {
+    return res.status(404).send(`
+      <html><body style="font-family:Georgia,serif;text-align:center;padding:60px;background:#fdf6ee;">
+      <h2>Memory Not Found</h2>
+      <p>This memory link may have expired or been removed.</p>
+      </body></html>
+    `)
+  }
+
+  const now = new Date()
+  const expires = new Date(share.expires_at)
+  if (now > expires) {
+    return res.status(410).send(`
+      <html><body style="font-family:Georgia,serif;text-align:center;padding:60px;background:#fdf6ee;">
+      <h2>This Memory Has Expired</h2>
+      <p>This shared memory was available for 30 days and has now expired.</p>
+      <p>Ask your family member to share it again from Gatheritup.</p>
+      </body></html>
+    `)
+  }
+
+  const isVideo = share.media_type === 'video'
+  const formattedDate = share.memory_date ? new Date(share.memory_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''
+  const expiresFormatted = expires.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${share.sharer_name} shared a memory with you</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Georgia, serif; background: #fdf6ee; color: #333; }
+    .container { max-width: 680px; margin: 0 auto; padding: 40px 20px; }
+    .header { text-align: center; margin-bottom: 30px; }
+    .header h1 { font-size: 26px; color: #5a3e2b; margin-bottom: 8px; }
+    .header p { font-size: 18px; color: #7a5c42; }
+    .media-wrap { text-align: center; margin: 30px 0; }
+    .media-wrap img { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+    .media-wrap video { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+    .video-hint { font-size: 16px; color: #7a5c42; margin-top: 10px; }
+    .memory-info { background: #fff8f0; border-radius: 12px; padding: 30px; margin: 20px 0; }
+    .memory-title { font-size: 24px; font-weight: bold; color: #5a3e2b; margin-bottom: 8px; }
+    .memory-date { font-size: 16px; color: #999; margin-bottom: 16px; }
+    .memory-story { font-size: 18px; line-height: 1.7; color: #444; }
+    .download-btn { display: block; width: 100%; padding: 18px; background: #5a3e2b; color: #fff; font-size: 20px; font-family: Georgia, serif; border: none; border-radius: 10px; cursor: pointer; text-align: center; text-decoration: none; margin: 20px 0; }
+    .download-btn:hover { background: #7a5c42; }
+    .expiry { text-align: center; font-size: 15px; color: #aaa; margin: 10px 0; }
+    .marketing { background: #fff; border: 2px solid #e8d5c0; border-radius: 12px; padding: 24px; margin: 30px 0; text-align: center; }
+    .marketing p { font-size: 17px; color: #5a3e2b; line-height: 1.6; margin-bottom: 14px; }
+    .marketing a { display: inline-block; padding: 14px 28px; background: #e07b39; color: #fff; border-radius: 8px; text-decoration: none; font-size: 17px; }
+    .marketing a:hover { background: #c9652a; }
+    .footer { text-align: center; font-size: 14px; color: #bbb; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>💛 ${share.sharer_name} shared a memory with you</h1>
+      ${isVideo ? '<p class="video-hint">Press play to watch this memory. Make sure your sound is on! 🔊</p>' : ''}
+    </div>
+
+    <div class="media-wrap">
+      ${isVideo
+        ? `<video controls playsinline><source src="${share.media_url}"></video>`
+        : `<img src="${share.media_url}" alt="${share.title}">`
+      }
+    </div>
+
+    <div class="memory-info">
+      ${share.title ? `<div class="memory-title">${share.title}</div>` : ''}
+      ${formattedDate ? `<div class="memory-date">${formattedDate}</div>` : ''}
+      ${share.story ? `<div class="memory-story">${share.story}</div>` : ''}
+    </div>
+
+    <a class="download-btn" href="${share.media_url}" download>
+      💾 Download This Memory — Save It to Your Device
+    </a>
+
+    <p class="expiry">This memory was shared with love and will be available until ${expiresFormatted}.</p>
+
+    <div class="marketing">
+      <p>Enjoyed this memory? Gatheritup helps families preserve their photos, videos, and the stories behind them — all in one beautiful place.</p>
+      <p><strong>Try it free for 30 days — no credit card needed.</strong></p>
+      <a href="https://gatheritup.com/signup.html">Start My Free Trial at Gatheritup.com</a>
+    </div>
+
+    <div class="footer">
+      Shared with love using <a href="https://gatheritup.com" style="color:#bbb;">Gatheritup.com</a> — where families preserve their memories.
+    </div>
+  </div>
+</body>
+</html>
+  `)
 })
 
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
