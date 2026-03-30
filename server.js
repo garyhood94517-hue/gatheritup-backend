@@ -27,6 +27,33 @@ app.use(cors({
     'http://localhost:5173'
   ]
 }))
+
+// ── STRIPE WEBHOOK (must be before express.json) ─────────────────────────────
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature']
+  let event
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
+  } catch (err) {
+    console.error('Webhook error:', err.message)
+    return res.status(400).json({ error: 'Webhook signature failed' })
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object
+    const userId = session.metadata.userId
+    console.log('Payment completed for user:', userId)
+
+    await supabase
+      .from('users')
+      .update({ status: 'paid', paid_at: new Date().toISOString() })
+      .eq('id', userId)
+  }
+
+  res.json({ received: true })
+})
+
 app.use(express.json())
 
 // ── Auth middleware ──────────────────────────────────────────────────────────
@@ -211,30 +238,6 @@ app.post('/api/create-checkout', authRequired, async (req, res) => {
     console.error('Stripe error:', err)
     res.status(500).json({ error: 'Could not create payment session.' })
   }
-})
-
-// ── STRIPE WEBHOOK ───────────────────────────────────────────────────────────
-app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature']
-  let event
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
-  } catch (err) {
-    return res.status(400).json({ error: 'Webhook signature failed' })
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object
-    const userId = session.metadata.userId
-
-    await supabase
-      .from('users')
-      .update({ status: 'paid', paid_at: new Date().toISOString() })
-      .eq('id', userId)
-  }
-
-  res.json({ received: true })
 })
 
 // ── TRUSTEE / LEGACY ACCESS ──────────────────────────────────────────────────
