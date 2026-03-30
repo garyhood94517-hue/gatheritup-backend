@@ -22,11 +22,18 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({
-  origin: [
-    'https://steady-klepon-508c5d.netlify.app',
-    'https://www.gatheritup.com',
-    'http://localhost:5173'
-  ]
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true)
+    const allowed = [
+      'https://steady-klepon-508c5d.netlify.app',
+      'https://www.gatheritup.com',
+      'https://gatheritup.com',
+      'http://localhost:5173'
+    ]
+    if (allowed.includes(origin)) return callback(null, true)
+    callback(null, true) // Allow all for now during development
+  }
 }))
 
 // ── STRIPE WEBHOOK (must be before express.json) ─────────────────────────────
