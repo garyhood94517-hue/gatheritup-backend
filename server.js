@@ -260,6 +260,7 @@ app.post('/api/trustee', authRequired, async (req, res) => {
 // ── ADMIN ────────────────────────────────────────────────────────────────────
 app.get('/api/admin/users', async (req, res) => {
   const key = req.query.key || req.headers['x-admin-key']
+  console.log('KEY:', JSON.stringify(key), 'ENV:', JSON.stringify(process.env.ADMIN_KEY))
   if (key !== process.env.ADMIN_KEY) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
