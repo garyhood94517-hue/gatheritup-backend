@@ -175,7 +175,6 @@ app.post('/api/share', authRequired, upload.single('media'), async (req, res) =>
         {
           resource_type: isVideo === 'true' ? 'video' : 'image',
           folder: 'gatheritup',
-          eager_async: false,
         },
         (error, result) => {
           if (error) reject(error)
