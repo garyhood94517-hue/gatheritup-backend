@@ -409,6 +409,43 @@ app.post('/api/admin/broadcast', adminAuth, async (req, res) => {
   }
 })
 
+// ── FORGOT PASSWORD ───────────────────────────────────────────────────────────
+app.post('/api/forgot-password', async (req, res) => {
+  const { email } = req.body
+  if (!email) return res.status(400).json({ error: 'Email is required.' })
+  const { data: user } = await supabase.from('users').select('id, first_name, email').eq('email', email.toLowerCase()).single()
+  // Always return success to avoid revealing if email exists
+  if (!user) return res.json({ success: true })
+  const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  const resetExpiry = new Date(Date.now() + 60 * 60 * 1000)
+  await supabase.from('users').update({ reset_token: resetToken, reset_expiry: resetExpiry.toISOString() }).eq('id', user.id)
+  const resetUrl = 'https://gatheritup.com/reset-password.html?token=' + resetToken
+  try {
+    await sgMail.send({
+      to: user.email,
+      from: 'support@gatheritup.com',
+      subject: 'Reset Your Gatheritup Password',
+      html: `<p>Hi ${user.first_name},</p><p>We received a request to reset your Gatheritup password. Click below to set a new password. This link expires in 1 hour.</p><p><a href="${resetUrl}" style="background:#0dbbad;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Reset My Password</a></p><p>If you did not request this, you can safely ignore this email.</p><p>— The Gatheritup Team</p>`
+    })
+  } catch (err) {
+    console.error('Forgot password email error:', err)
+  }
+  res.json({ success: true })
+})
+
+// ── RESET PASSWORD ────────────────────────────────────────────────────────────
+app.post('/api/reset-password', async (req, res) => {
+  const { token, password } = req.body
+  if (!token || !password) return res.status(400).json({ error: 'Token and password are required.' })
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' })
+  const { data: user } = await supabase.from('users').select('id, reset_token, reset_expiry').eq('reset_token', token).single()
+  if (!user) return res.status(400).json({ error: 'Invalid or expired reset link.' })
+  if (new Date() > new Date(user.reset_expiry)) return res.status(400).json({ error: 'This reset link has expired. Please request a new one.' })
+  const hashedPassword = await bcrypt.hash(password, 12)
+  await supabase.from('users').update({ password_hash: hashedPassword, reset_token: null, reset_expiry: null }).eq('id', user.id)
+  res.json({ success: true })
+})
+
 // ── START SERVER ──────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log('Gatheritup API running on port ' + PORT)
