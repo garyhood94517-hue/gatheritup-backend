@@ -207,6 +207,13 @@ app.post('/api/share', authRequired, upload.single('media'), async (req, res) =>
       return res.status(500).json({ error: 'Could not save share.' })
     }
 
+    // Get marketing message from settings
+    const { data: settingsRows } = await supabase.from('settings').select('key, value')
+    const settings = {}
+    if (settingsRows) settingsRows.forEach(r => { settings[r.key] = r.value })
+    const marketingText = settings['marketing_paragraph'] || 'Enjoyed this memory? Gatheritup helps families preserve their photos, videos, and the stories behind them — all in one beautiful place.'
+    const marketingCta  = settings['marketing_cta']  || 'Try it free for 30 days — no credit card needed.'
+
     // Track first share for marketing message
     const isFirstShare = !user.first_share_sent
     if (isFirstShare) {
@@ -311,8 +318,8 @@ app.get('/share/:token', async (req, res) => {
     <p class="expiry">This memory was shared with love and will be available until ${expiresFormatted}.</p>
 
     <div class="marketing">
-      <p>Enjoyed this memory? Gatheritup helps families preserve their photos, videos, and the stories behind them — all in one beautiful place.</p>
-      <p><strong>Try it free for 30 days — no credit card needed.</strong></p>
+      <p>${marketingText}</p>
+      <p><strong>${marketingCta}</strong></p>
       <a href="https://gatheritup.com/signup.html">Start My Free Trial at Gatheritup.com</a>
     </div>
 
@@ -409,7 +416,22 @@ app.post('/api/admin/broadcast', adminAuth, async (req, res) => {
   }
 })
 
-// ── FORGOT PASSWORD ───────────────────────────────────────────────────────────
+// ── ADMIN SETTINGS ────────────────────────────────────────────────────────────
+app.get('/api/admin/settings', adminAuth, async (req, res) => {
+  const { data } = await supabase.from('settings').select('key, value')
+  const settings = {}
+  if (data) data.forEach(row => { settings[row.key] = row.value })
+  res.json(settings)
+})
+
+app.post('/api/admin/settings', adminAuth, async (req, res) => {
+  const { key, value } = req.body
+  if (!key) return res.status(400).json({ error: 'Key is required.' })
+  await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+  res.json({ success: true })
+})
+
+
 app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body
   if (!email) return res.status(400).json({ error: 'Email is required.' })
