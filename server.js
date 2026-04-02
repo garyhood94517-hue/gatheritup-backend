@@ -9,6 +9,7 @@ import sgMail from '@sendgrid/mail'
 import { v2 as cloudinary } from 'cloudinary'
 import multer from 'multer'
 import { Readable } from 'stream'
+import cron from 'node-cron'
 
 dotenv.config()
 
@@ -467,6 +468,70 @@ app.post('/api/reset-password', async (req, res) => {
   await supabase.from('users').update({ password_hash: hashedPassword, reset_token: null, reset_expiry: null }).eq('id', user.id)
   res.json({ success: true })
 })
+
+// ── EMAIL SCHEDULER ───────────────────────────────────────────────────────────
+const EMAIL_DAYS = [1, 7, 14, 20, 27, 30]
+
+async function runEmailScheduler() {
+  console.log('📧 Running email scheduler:', new Date().toISOString())
+  try {
+    // Load all email templates from settings
+    const { data: settingsRows } = await supabase.from('settings').select('key, value')
+    const settings = {}
+    if (settingsRows) settingsRows.forEach(r => { settings[r.key] = r.value })
+
+    // Default email templates
+    const defaults = {
+      1:  { subject: 'Welcome to Gatheritup, {first_name}! 🎉',          body: 'Hi {first_name},\n\nWelcome to Gatheritup! To get started, tap the + button to add your first memory.\n\nIf you need any help, just reply to this email.\n\n— Gary & The Gatheritup Team' },
+      7:  { subject: 'Did you know you can share memories with family?',  body: 'Hi {first_name},\n\nYou\'ve been with us for a week! Did you know you can share any memory with family? Just open a memory and tap Share.\n\n— Gary & The Gatheritup Team' },
+      14: { subject: 'A tip to keep your memories organized',             body: 'Hi {first_name},\n\nTip: Use Categories to organize your memories. Create categories like "Family Vacations" or "Holidays" and filter by them anytime.\n\n— Gary & The Gatheritup Team' },
+      20: { subject: 'Your Gatheritup trial ends in 10 days',            body: 'Hi {first_name},\n\nYour free trial ends in 10 days. Upgrade for just $49.95 — one-time, no subscription ever.\n\nUpgrade here: https://gatheritup.com\n\n— Gary & The Gatheritup Team' },
+      27: { subject: 'Your Gatheritup trial ends in 3 days ⏰',           body: 'Hi {first_name},\n\nJust 3 days left on your trial! Don\'t lose your memories.\n\nUpgrade for $49.95 here: https://gatheritup.com\n\n— Gary & The Gatheritup Team' },
+      30: { subject: 'Your Gatheritup trial has ended',                  body: 'Hi {first_name},\n\nYour 30-day trial has ended. Your memories are safely stored and waiting for you.\n\nUpgrade for $49.95 to regain full access: https://gatheritup.com\n\n— Gary & The Gatheritup Team' },
+    }
+
+    // Get all active trial users who accept email communications
+    const { data: users } = await supabase.from('users').select('id, first_name, email, created_at, status, comm_pref').eq('status', 'trial').eq('comm_pref', 'email')
+    if (!users || !users.length) return console.log('No trial users found.')
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    for (const user of users) {
+      const signupDate = new Date(user.created_at)
+      signupDate.setHours(0, 0, 0, 0)
+      const daysSinceSignup = Math.round((today - signupDate) / (1000 * 60 * 60 * 24))
+
+      if (!EMAIL_DAYS.includes(daysSinceSignup)) continue
+
+      const subjectTemplate = settings[`email_subject_${daysSinceSignup}`] || defaults[daysSinceSignup]?.subject
+      const bodyTemplate    = settings[`email_body_${daysSinceSignup}`]    || defaults[daysSinceSignup]?.body
+      if (!subjectTemplate || !bodyTemplate) continue
+
+      const subject = subjectTemplate.replace(/{first_name}/g, user.first_name)
+      const body    = bodyTemplate.replace(/{first_name}/g, user.first_name)
+      const html    = body.replace(/\n/g, '<br>')
+
+      try {
+        await sgMail.send({
+          to:      user.email,
+          from:    'support@gatheritup.com',
+          subject,
+          html:    `<div style="font-family:sans-serif;font-size:16px;line-height:1.7;color:#1a1f2e;max-width:560px;margin:0 auto;padding:24px;">${html}</div>`
+        })
+        console.log(`✅ Day ${daysSinceSignup} email sent to ${user.email}`)
+      } catch (err) {
+        console.error(`❌ Failed to send to ${user.email}:`, err.message)
+      }
+    }
+  } catch (err) {
+    console.error('Scheduler error:', err)
+  }
+}
+
+// Run every day at 9:00 AM UTC (2:00 AM Pacific)
+cron.schedule('0 9 * * *', runEmailScheduler)
+console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 
 // ── START SERVER ──────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
