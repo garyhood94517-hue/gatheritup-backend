@@ -208,13 +208,6 @@ app.post('/api/share', authRequired, upload.single('media'), async (req, res) =>
       return res.status(500).json({ error: 'Could not save share.' })
     }
 
-    // Get marketing message from settings
-    const { data: settingsRows } = await supabase.from('settings').select('key, value')
-    const settings = {}
-    if (settingsRows) settingsRows.forEach(r => { settings[r.key] = r.value })
-    const marketingText = settings['marketing_paragraph'] || 'Enjoyed this memory? Gatheritup helps families preserve their photos, videos, and the stories behind them — all in one beautiful place.'
-    const marketingCta  = settings['marketing_cta']  || 'Try it free for 30 days — no credit card needed.'
-
     // Track first share for marketing message
     const isFirstShare = !user.first_share_sent
     if (isFirstShare) {
@@ -259,6 +252,8 @@ app.get('/share/:token', async (req, res) => {
   const isVideo = share.media_type === 'video'
   const formattedDate = share.memory_date ? new Date(share.memory_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''
   const expiresFormatted = expires.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  const marketingText = 'Enjoyed this memory? Gatheritup helps families preserve their photos, videos, and the stories behind them — all in one beautiful place.'
+  const marketingCta  = 'Try it free for 30 days — no credit card needed.'
 
   res.send(`
 <!DOCTYPE html>
@@ -432,12 +427,10 @@ app.post('/api/admin/settings', adminAuth, async (req, res) => {
   res.json({ success: true })
 })
 
-
 app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body
   if (!email) return res.status(400).json({ error: 'Email is required.' })
   const { data: user } = await supabase.from('users').select('id, first_name, email').eq('email', email.toLowerCase()).single()
-  // Always return success to avoid revealing if email exists
   if (!user) return res.json({ success: true })
   const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   const resetExpiry = new Date(Date.now() + 60 * 60 * 1000)
@@ -475,12 +468,10 @@ const EMAIL_DAYS = [1, 7, 14, 20, 27, 30]
 async function runEmailScheduler() {
   console.log('📧 Running email scheduler:', new Date().toISOString())
   try {
-    // Load all email templates from settings
     const { data: settingsRows } = await supabase.from('settings').select('key, value')
     const settings = {}
     if (settingsRows) settingsRows.forEach(r => { settings[r.key] = r.value })
 
-    // Default email templates
     const defaults = {
       1:  { subject: 'Welcome to Gatheritup, {first_name}! 🎉',          body: 'Hi {first_name},\n\nWelcome to Gatheritup! To get started, tap the + button to add your first memory.\n\nIf you need any help, just reply to this email.\n\n— Gary & The Gatheritup Team' },
       7:  { subject: 'Did you know you can share memories with family?',  body: 'Hi {first_name},\n\nYou\'ve been with us for a week! Did you know you can share any memory with family? Just open a memory and tap Share.\n\n— Gary & The Gatheritup Team' },
@@ -490,7 +481,6 @@ async function runEmailScheduler() {
       30: { subject: 'Your Gatheritup trial has ended',                  body: 'Hi {first_name},\n\nYour 30-day trial has ended. Your memories are safely stored and waiting for you.\n\nUpgrade for $49.95 to regain full access: https://gatheritup.com\n\n— Gary & The Gatheritup Team' },
     }
 
-    // Get all active trial users who accept email communications
     const { data: users } = await supabase.from('users').select('id, first_name, email, created_at, status, comm_pref').eq('status', 'trial').eq('comm_pref', 'email')
     if (!users || !users.length) return console.log('No trial users found.')
 
@@ -529,7 +519,6 @@ async function runEmailScheduler() {
   }
 }
 
-// Run every day at 9:00 AM UTC (2:00 AM Pacific)
 cron.schedule('0 9 * * *', runEmailScheduler)
 console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 
