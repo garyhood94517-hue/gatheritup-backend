@@ -139,6 +139,21 @@ app.get('/api/me', authRequired, async (req, res) => {
   res.json({ id: user.id, firstName: user.first_name, lastName: user.last_name, email: user.email, phone: user.phone, status: user.status, trialEnd: user.trial_end, commPref: user.comm_pref })
 })
 
+// ── CHANGE PASSWORD ───────────────────────────────────────────────────────────
+app.post('/auth/change-password', authRequired, async (req, res) => {
+  const { email, currentPassword, newPassword } = req.body
+  if (!email || !currentPassword || !newPassword) return res.status(400).json({ error: 'All fields are required.' })
+  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' })
+  const { data: user } = await supabase.from('users').select('*').eq('id', req.user.id).single()
+  if (!user) return res.status(404).json({ error: 'User not found.' })
+  if (user.email.toLowerCase() !== email.trim().toLowerCase()) return res.status(400).json({ error: 'Email address does not match our records.' })
+  const valid = await bcrypt.compare(currentPassword, user.password_hash)
+  if (!valid) return res.status(400).json({ error: 'Current password is incorrect.' })
+  const hashedPassword = await bcrypt.hash(newPassword, 12)
+  await supabase.from('users').update({ password_hash: hashedPassword }).eq('id', user.id)
+  res.json({ success: true })
+})
+
 // ── STRIPE PAYMENT ────────────────────────────────────────────────────────────
 app.post('/api/create-checkout', authRequired, async (req, res) => {
   try {
