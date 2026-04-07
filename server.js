@@ -537,6 +537,86 @@ async function runEmailScheduler() {
 cron.schedule('0 9 * * *', runEmailScheduler)
 console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 
+// ── MEMORIES API ──────────────────────────────────────────────────────────────
+
+// GET all memories for current user
+app.get('/api/memories', authRequired, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('memories')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json(data || [])
+  } catch (err) {
+    console.error('GET memories error:', err)
+    res.status(500).json({ error: 'Could not load memories.' })
+  }
+})
+
+// POST save a new memory
+app.post('/api/memories', authRequired, async (req, res) => {
+  try {
+    const { memory_id, title, date, caption, groups, files, is_sample } = req.body
+    const { data, error } = await supabase
+      .from('memories')
+      .upsert({
+        user_id: req.user.id,
+        memory_id,
+        title,
+        date,
+        caption,
+        groups: groups || [],
+        files: files || [],
+        is_sample: is_sample || false,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,memory_id' })
+      .select()
+      .single()
+    if (error) throw error
+    res.json(data)
+  } catch (err) {
+    console.error('POST memory error:', err)
+    res.status(500).json({ error: 'Could not save memory.' })
+  }
+})
+
+// PUT update an existing memory
+app.put('/api/memories/:memory_id', authRequired, async (req, res) => {
+  try {
+    const { title, date, caption, groups, files } = req.body
+    const { data, error } = await supabase
+      .from('memories')
+      .update({ title, date, caption, groups: groups || [], files: files || [], updated_at: new Date().toISOString() })
+      .eq('user_id', req.user.id)
+      .eq('memory_id', req.params.memory_id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json(data)
+  } catch (err) {
+    console.error('PUT memory error:', err)
+    res.status(500).json({ error: 'Could not update memory.' })
+  }
+})
+
+// DELETE a memory
+app.delete('/api/memories/:memory_id', authRequired, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('memories')
+      .delete()
+      .eq('user_id', req.user.id)
+      .eq('memory_id', req.params.memory_id)
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    console.error('DELETE memory error:', err)
+    res.status(500).json({ error: 'Could not delete memory.' })
+  }
+})
+
 // ── START SERVER ──────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log('Gatheritup API running on port ' + PORT)
