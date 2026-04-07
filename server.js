@@ -537,6 +537,29 @@ async function runEmailScheduler() {
 cron.schedule('0 9 * * *', runEmailScheduler)
 console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 
+// ── FILE UPLOAD ───────────────────────────────────────────────────────────────
+app.post('/api/upload', authRequired, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided.' })
+    const ext = req.file.originalname.split('.').pop() || 'jpg'
+    const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const { error } = await supabase.storage
+      .from('memories')
+      .upload(path, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true
+      })
+    if (error) throw error
+    const { data: { publicUrl } } = supabase.storage
+      .from('memories')
+      .getPublicUrl(path)
+    res.json({ url: publicUrl, path })
+  } catch (err) {
+    console.error('Upload error:', err)
+    res.status(500).json({ error: 'Upload failed.' })
+  }
+})
+
 // ── MEMORIES API ──────────────────────────────────────────────────────────────
 
 // GET all memories for current user
