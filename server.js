@@ -540,23 +540,34 @@ console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 // ── FILE UPLOAD ───────────────────────────────────────────────────────────────
 app.post('/api/upload', authRequired, upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file provided.' })
-    const ext = req.file.originalname.split('.').pop() || 'jpg'
+    console.log('[UPLOAD] Request received from user:', req.user?.id)
+    if (!req.file) {
+      console.log('[UPLOAD] No file in request')
+      return res.status(400).json({ error: 'No file provided.' })
+    }
+    console.log('[UPLOAD] File received:', req.file.originalname, req.file.mimetype, req.file.size, 'bytes')
+    const ext = (req.file.originalname || 'file.jpg').split('.').pop() || 'jpg'
     const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { error } = await supabase.storage
+    console.log('[UPLOAD] Uploading to Supabase path:', path)
+    const { data: uploadData, error } = await supabase.storage
       .from('memories')
       .upload(path, req.file.buffer, {
         contentType: req.file.mimetype,
         upsert: true
       })
-    if (error) throw error
+    if (error) {
+      console.error('[UPLOAD] Supabase Storage error:', JSON.stringify(error))
+      throw error
+    }
+    console.log('[UPLOAD] Supabase upload success:', JSON.stringify(uploadData))
     const { data: { publicUrl } } = supabase.storage
       .from('memories')
       .getPublicUrl(path)
+    console.log('[UPLOAD] Public URL:', publicUrl)
     res.json({ url: publicUrl, path })
   } catch (err) {
-    console.error('Upload error:', err)
-    res.status(500).json({ error: 'Upload failed.' })
+    console.error('[UPLOAD] Error:', err.message, err.stack)
+    res.status(500).json({ error: 'Upload failed: ' + err.message })
   }
 })
 
