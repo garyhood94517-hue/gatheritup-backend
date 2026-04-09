@@ -179,33 +179,31 @@ app.get('/api/trustee', authRequired, async (req, res) => {
 })
 
 app.post('/api/trustee', authRequired, async (req, res) => {
-  const { trustee1Name, trustee1Email, trustee2Name, trustee2Email } = req.body
+  const { trustee1Name, trustee1Email, trustee2Name, trustee2Email, emailChanged } = req.body
+  const { data: existing } = await supabase.from('users').select('first_name, last_name').eq('id', req.user.id).single()
+  const fullName = `${existing.first_name} ${existing.last_name}`
   await supabase.from('users').update({
     trustee_name: trustee1Name,
     trustee_email: trustee1Email,
     trustee2_name: trustee2Name || null,
     trustee2_email: trustee2Email || null
   }).eq('id', req.user.id)
-  // Send notification email to trustee 1
-  if (trustee1Email) {
-    try {
-      const { data: user } = await supabase.from('users').select('first_name, last_name').eq('id', req.user.id).single()
-      const fullName = `${user.first_name} ${user.last_name}`
-      await sgMail.send({
-        to: trustee1Email,
-        from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-        subject: `${fullName} has named you as a Legacy Trustee`,
-        text: `Dear ${trustee1Name},
-
-${fullName} has chosen you as their primary Legacy Trustee on Gatheritup — a place where families preserve their most precious memories.
-
-This means that when the time comes, you are trusted to help preserve and share their family memories with loved ones. You don't need to do anything right now.
-
-When the time comes, simply contact us at support@gatheritup.com and we will take care of everything personally.
-
-With care,
-The Gatheritup Team`
-      })
+  const sendTrusteeEmail = async (toEmail, toName, role) => {
+    await sgMail.send({
+      to: toEmail,
+      from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
+      subject: `${fullName} has named you as a Legacy Trustee`,
+      text: `Dear ${toName},\n\n${fullName} has chosen you as their ${role} Legacy Trustee on Gatheritup — a place where families preserve their most precious memories.\n\nThis means that when the time comes, you are trusted to help preserve and share their family memories with loved ones. You don't need to do anything right now.\n\nWhen the time comes, simply contact us at support@gatheritup.com and we will take care of everything personally.\n\nWith care,\nThe Gatheritup Team`
+    })
+  }
+  if (emailChanged && trustee1Email && trustee1Name) {
+    try { await sendTrusteeEmail(trustee1Email, trustee1Name, 'primary') } catch(e) { console.error('Trustee 1 email error:', e.message) }
+  }
+  if (emailChanged && trustee2Email && trustee2Name) {
+    try { await sendTrusteeEmail(trustee2Email, trustee2Name, 'secondary') } catch(e) { console.error('Trustee 2 email error:', e.message) }
+  }
+  res.json({ success: true })
+})
     } catch(e) { console.error('Trustee email error:', e.message) }
   }
   // Send notification email to trustee 2 if provided
