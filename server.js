@@ -216,6 +216,311 @@ app.post('/api/trustee', authRequired, async (req, res) => {
   }
 })
 
+
+// ── LEGACY ACCESS VIEW PAGE ───────────────────────────────────────────────────
+// Read-only page served to trustees after Legacy Access is activated
+// Trustees can view all memories and export by quarter
+
+app.get('/legacy/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params
+
+    // Verify legacy access is active
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('first_name, last_name, legacy_active')
+      .eq('id', userId)
+      .single()
+
+    if (error || !user) return res.status(404).send('<h2>Page not found.</h2>')
+    if (!user.legacy_active) return res.status(403).send(`
+      <div style="font-family:Georgia,serif;max-width:500px;margin:80px auto;text-align:center;padding:0 24px;">
+        <h2 style="color:#1a1f2e;">Access Not Yet Available</h2>
+        <p style="color:#6b7280;line-height:1.7;">Legacy Access for this account has not been activated yet. If you believe this is an error, please contact us at <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a>.</p>
+      </div>`)
+
+    // Get all memories
+    const { data: memories } = await supabase
+      .from('memories')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_sample', false)
+      .order('date', { ascending: true })
+
+    const fullName = `${user.first_name} ${user.last_name}`
+    const memoryList = memories || []
+
+    // Group by year/quarter for export UI
+    const quarters = {}
+    memoryList.forEach(m => {
+      const y = m.date ? parseInt(m.date.split('-')[0]) : null
+      const mo = m.date ? parseInt(m.date.split('-')[1]) : null
+      if (!y || !mo) return
+      const q = Math.ceil(mo / 3)
+      const key = `${y}-Q${q}`
+      if (!quarters[key]) quarters[key] = { year: y, quarter: q, count: 0, photos: 0, videos: 0 }
+      quarters[key].count++
+      ;(m.files || []).forEach(f => {
+        if (f.type === 'photo') quarters[key].photos++
+        if (f.type === 'video') quarters[key].videos++
+      })
+    })
+
+    const quarterList = Object.values(quarters).sort((a, b) => b.year - a.year || b.quarter - a.quarter)
+    const byYear = {}
+    quarterList.forEach(q => {
+      if (!byYear[q.year]) byYear[q.year] = []
+      byYear[q.year].push(q)
+    })
+
+    const quarterNames = { 1: 'January — March', 2: 'April — June', 3: 'July — September', 4: 'October — December' }
+
+    const quartersHTML = Object.keys(byYear).sort((a,b) => b-a).map(year => `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:13px;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">${year}</div>
+        ${byYear[year].map(q => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#f9fafb;border-radius:10px;margin-bottom:8px;border:1px solid #e5e7eb;">
+            <div>
+              <div style="font-size:15px;font-weight:600;color:#1a1f2e;margin-bottom:2px;">Q${q.quarter} — ${quarterNames[q.quarter]}</div>
+              <div style="font-size:12px;color:#9ca3af;">${q.count} ${q.count === 1 ? 'memory' : 'memories'}${q.photos > 0 ? ` · ${q.photos} photo${q.photos !== 1 ? 's' : ''}` : ''}${q.videos > 0 ? ` · ${q.videos} video${q.videos !== 1 ? 's' : ''}` : ''}</div>
+            </div>
+            <button onclick="exportQuarter('${userId}','${fullName}',${q.year},${q.quarter})" style="background:#0dbbad;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">📥 Export</button>
+          </div>`).join('')}
+      </div>`).join('')
+
+    const memoriesHTML = memoryList.map((m, idx) => {
+      const files = m.files || []
+      const photos = files.filter(f => f.type === 'photo')
+      const videos = files.filter(f => f.type === 'video')
+      const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+      const fmtDate = (s) => {
+        if (!s) return ''
+        const [y, mo, d] = s.split('-')
+        if (d && d !== '01') return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${y}`
+        if (mo) return `${months[parseInt(mo)-1]} ${y}`
+        return y
+      }
+      const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+
+      return `
+        <div style="background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05);">
+          <h3 style="font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin:0 0 4px;">${idx+1}. ${title}</h3>
+          <p style="font-size:13px;color:#9ca3af;margin:0 0 14px;">${fmtDate(m.date)}</p>
+          ${m.caption ? `<p style="font-size:16px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>` : ''}
+          ${photos.length > 0 ? `
+            <div style="margin-bottom:12px;">
+              <div style="font-size:12px;font-weight:700;color:#0dbbad;margin-bottom:8px;">📷 Photos (${photos.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${photos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;font-weight:600;">Download Photo ${i+1}</a>`).join('')}
+              </div>
+            </div>` : ''}
+          ${videos.length > 0 ? `
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#0dbbad;margin-bottom:8px;">🎬 Videos (${videos.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${videos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;font-weight:600;">Download Video ${i+1}</a>`).join('')}
+              </div>
+            </div>` : ''}
+        </div>`
+    }).join('')
+
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>The Memories of ${fullName}</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Source Sans 3',sans-serif;background:#f9fafb;color:#1a1f2e;line-height:1.7;}
+.header{background:#1a1f2e;padding:32px 24px;text-align:center;}
+.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:28px;margin-bottom:6px;}
+.header p{color:rgba(255,255,255,0.6);font-size:15px;}
+.content{max-width:680px;margin:0 auto;padding:32px 24px 80px;}
+.section{background:#fff;border-radius:16px;padding:24px;margin-bottom:24px;border:1px solid #e5e7eb;}
+.section-title{font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin-bottom:16px;}
+.notice{background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:14px 18px;margin-bottom:24px;}
+.notice p{font-size:14px;color:#085041;line-height:1.6;margin:0;}
+#exportMsg{display:none;background:#f0faf8;border:1px solid #9FE1CB;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:14px;color:#085041;}
+footer{background:#1a1f2e;text-align:center;padding:24px;color:rgba(255,255,255,0.5);font-size:13px;}
+footer a{color:#0dbbad;text-decoration:none;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>The Memories of ${fullName}</h1>
+  <p>Preserved with love using Gatheritup</p>
+</div>
+
+<div class="content">
+
+  <div class="notice">
+    <p>This is a private Legacy Access page. These memories have been entrusted to you. Please download and save everything you'd like to preserve — photos, videos, and stories are available below.</p>
+  </div>
+
+  ${quarterList.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Export by Quarter</div>
+    <p style="font-size:14px;color:#6b7280;margin-bottom:16px;">Export a quarter to receive an email with all stories and download links for photos and videos — organized and ready to save.</p>
+    <div id="exportMsg">✅ Export sent! Check the email address on file for this Legacy Access.</div>
+    ${quartersHTML}
+  </div>` : ''}
+
+  <div class="section">
+    <div class="section-title">All Memories (${memoryList.length})</div>
+    ${memoryList.length === 0 ? '<p style="color:#9ca3af;">No memories found.</p>' : memoriesHTML}
+  </div>
+
+</div>
+
+<footer>
+  <p>© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com">support@gatheritup.com</a></p>
+  <p style="margin-top:6px;">If you need help, please contact us — we're here for you.</p>
+</footer>
+
+<script>
+async function exportQuarter(userId, fullName, year, quarter) {
+  const btn = event.target
+  btn.textContent = 'Sending…'
+  btn.disabled = true
+  try {
+    const res = await fetch('/api/legacy-export', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ userId, year, quarter })
+    })
+    const data = await res.json()
+    if (data.success) {
+      document.getElementById('exportMsg').style.display = 'block'
+      btn.textContent = '✅ Sent'
+    } else {
+      alert('Export failed. Please try again.')
+      btn.textContent = '📥 Export'
+      btn.disabled = false
+    }
+  } catch(e) {
+    alert('Export failed. Please try again.')
+    btn.textContent = '📥 Export'
+    btn.disabled = false
+  }
+}
+</script>
+</body>
+</html>`)
+  } catch(err) {
+    console.error('Legacy view error:', err.message)
+    res.status(500).send('<h2>Something went wrong. Please contact support@gatheritup.com</h2>')
+  }
+})
+
+// ── LEGACY EXPORT EMAIL ───────────────────────────────────────────────────────
+// Same as customer export but sends to trustee email on file
+
+app.post('/api/legacy-export', async (req, res) => {
+  try {
+    const { userId, year, quarter } = req.body
+    if (!userId || !year || !quarter) return res.status(400).json({ error: 'Missing fields.' })
+
+    // Verify legacy is active
+    const { data: user } = await supabase.from('users')
+      .select('first_name, last_name, trustee_email, trustee_name, trustee2_email, trustee2_name, legacy_active')
+      .eq('id', userId).single()
+
+    if (!user || !user.legacy_active) return res.status(403).json({ error: 'Legacy access not active.' })
+
+    const fullName = `${user.first_name} ${user.last_name}`
+    const quarterNames = { 1: 'January — March', 2: 'April — June', 3: 'July — September', 4: 'October — December' }
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+    const fmtDate = (s) => {
+      if (!s) return ''
+      const [y, mo, d] = s.split('-')
+      if (d && d !== '01') return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${y}`
+      if (mo) return `${months[parseInt(mo)-1]} ${y}`
+      return y
+    }
+
+    // Get memories for this quarter
+    const { data: memories } = await supabase.from('memories').select('*').eq('user_id', userId).eq('is_sample', false)
+    const quarterStart = new Date(`${year}-${String((quarter-1)*3+1).padStart(2,'0')}-01`)
+    const quarterEnd = new Date(`${year}-${String(quarter*3).padStart(2,'0')}-31`)
+    const filtered = (memories||[]).filter(m => {
+      if (!m.date) return false
+      const d = new Date(m.date)
+      return d >= quarterStart && d <= quarterEnd
+    }).sort((a,b) => new Date(a.date) - new Date(b.date))
+
+    if (filtered.length === 0) return res.status(400).json({ error: 'No memories for this quarter.' })
+
+    // Build email - same format as customer export but trustee tone
+    let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
+    emailBody += `<div style="background:#1a1f2e;padding:24px 32px;border-radius:12px 12px 0 0;">`
+    emailBody += `<h1 style="color:#fff;margin:0;font-size:24px;">The Memories of ${fullName}</h1>`
+    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:16px;">Q${quarter} ${year} — ${quarterNames[quarter]}</p>`
+    emailBody += `</div>`
+    emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
+    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">Here are ${fullName}'s memories from ${quarterNames[quarter]} ${year}.</p>`
+
+    filtered.forEach((m, idx) => {
+      const files = m.files || []
+      const photos = files.filter(f => f.type === 'photo')
+      const videos = files.filter(f => f.type === 'video')
+      const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+
+      emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
+      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx+1}. ${title}</h2>`
+      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${fmtDate(m.date)}</p>`
+      if (m.caption) emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>`
+
+      if (photos.length > 0) {
+        emailBody += `<div style="margin-bottom:12px;"><p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">📷 Photos (${photos.length})</p>`
+        photos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">📷 Download Photo ${i+1}</a>` })
+        emailBody += `</div>`
+      }
+      if (videos.length > 0) {
+        emailBody += `<div><p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">🎬 Videos (${videos.length})</p>`
+        videos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">🎬 Download Video ${i+1}</a>` })
+        emailBody += `</div>`
+      }
+      emailBody += `</div>`
+    })
+
+    emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:16px 20px;margin-top:8px;">`
+    emailBody += `<p style="font-size:15px;color:#085041;font-weight:700;margin:0 0 10px;">Please download and save these memories somewhere safe.</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;font-weight:700;margin:0 0 8px;">Where to save:</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">📱 iPhone or iPad — Save to Photos app or iCloud Drive</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">💻 Windows or Mac — Save to Documents folder or external drive</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0;">☁️ Cloud — Save to Google Drive or Dropbox</p>`
+    emailBody += `</div>`
+    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">With care — The Gatheritup Team</p>`
+    emailBody += `</div>`
+    emailBody += `<div style="background:#1a1f2e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
+    emailBody += `<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
+    emailBody += `</div></div>`
+
+    // Send to both trustees
+    const recipients = []
+    if (user.trustee_email) recipients.push({ email: user.trustee_email, name: user.trustee_name || 'Trustee' })
+    if (user.trustee2_email) recipients.push({ email: user.trustee2_email, name: user.trustee2_name || 'Trustee' })
+
+    for (const r of recipients) {
+      await sgMail.send({
+        to: r.email,
+        from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
+        subject: `The Memories of ${fullName} — Q${quarter} ${year}`,
+        html: emailBody
+      })
+    }
+
+    res.json({ success: true })
+  } catch(err) {
+    console.error('Legacy export error:', err.message)
+    res.status(500).json({ error: 'Export failed.' })
+  }
+})
+
 // ── SHARE: Upload media and create share link ─────────────────────────────────
 app.post('/api/share', authRequired, upload.single('media'), async (req, res) => {
   try {
