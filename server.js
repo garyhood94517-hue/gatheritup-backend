@@ -668,6 +668,114 @@ app.post('/api/upload', authRequired, upload.single('file'), async (req, res) =>
   }
 })
 
+
+// ── MEMORY EXPORT ─────────────────────────────────────────────────────────────
+// Sends an email with all stories and Supabase photo/video links for a quarter
+
+app.post('/api/export', authRequired, async (req, res) => {
+  try {
+    const { year, quarter } = req.body
+    if (!year || !quarter) return res.status(400).json({ error: 'Year and quarter required.' })
+
+    // Get user info
+    const { data: user } = await supabase.from('users').select('first_name, last_name, email').eq('id', req.user.id).single()
+    const fullName = `${user.first_name} ${user.last_name}`
+
+    // Get all memories for this user
+    const { data: memories } = await supabase.from('memories').select('*').eq('user_id', req.user.id).eq('is_sample', false)
+
+    // Filter by quarter
+    const quarterStart = new Date(`${year}-${String((quarter - 1) * 3 + 1).padStart(2, '0')}-01`)
+    const quarterEnd = new Date(`${year}-${String(quarter * 3).padStart(2, '0')}-31`)
+    const quarterNames = { 1: 'January — March', 2: 'April — June', 3: 'July — September', 4: 'October — December' }
+
+    const filtered = (memories || []).filter(m => {
+      if (!m.date) return false
+      const d = new Date(m.date)
+      return d >= quarterStart && d <= quarterEnd
+    }).sort((a, b) => new Date(a.date) - new Date(b.date))
+
+    if (filtered.length === 0) return res.status(400).json({ error: 'No memories found for this quarter.' })
+
+    // Build email body
+    let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
+    emailBody += `<div style="background:#0dbbad;padding:24px 32px;border-radius:12px 12px 0 0;">`
+    emailBody += `<h1 style="color:#fff;margin:0;font-size:24px;">Your Gatheritup Memories</h1>`
+    emailBody += `<p style="color:#e0f7f5;margin:8px 0 0;font-size:16px;">Q${quarter} ${year} — ${quarterNames[quarter]}</p>`
+    emailBody += `</div>`
+    emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
+    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">Dear ${user.first_name}, here are your memories from ${quarterNames[quarter]} ${year}. Click any download link to save your photos and videos.</p>`
+
+    filtered.forEach((m, idx) => {
+      const files = m.files || []
+      const photos = files.filter(f => f.type === 'photo')
+      const videos = files.filter(f => f.type === 'video')
+
+      emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
+      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx + 1}. ${m.title || 'Untitled Memory'}</h2>`
+      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${m.date || ''}</p>`
+
+      if (m.caption) {
+        emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>`
+      }
+
+      // Per-file captions
+      files.forEach(f => {
+        if (f.caption) {
+          emailBody += `<p style="font-size:14px;color:#6b7280;margin:0 0 8px;">📝 ${f.caption}</p>`
+        }
+      })
+
+      // Download links
+      if (photos.length > 0) {
+        emailBody += `<div style="margin-top:12px;">`
+        emailBody += `<p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">📷 Photos (${photos.length})</p>`
+        photos.forEach((f, i) => {
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">Download Photo ${i + 1}</a>`
+        })
+        emailBody += `</div>`
+      }
+
+      if (videos.length > 0) {
+        emailBody += `<div style="margin-top:8px;">`
+        emailBody += `<p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">🎬 Videos (${videos.length})</p>`
+        videos.forEach((f, i) => {
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">Download Video ${i + 1}</a>`
+        })
+        emailBody += `</div>`
+      }
+
+      emailBody += `</div>`
+    })
+
+    // Suggestions
+    emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:16px 20px;margin-top:8px;">`
+    emailBody += `<p style="font-size:14px;color:#085041;font-weight:700;margin:0 0 8px;">Where to save your photos and videos:</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">📱 iPhone or iPad — Save to your Photos app or iCloud Drive</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">💻 Windows or Mac — Save to your Documents folder or an external drive</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0;">☁️ Cloud — Save to Google Drive or Dropbox for access anywhere</p>`
+    emailBody += `</div>`
+
+    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">Your memories are safely stored in Gatheritup's secure cloud. Export anytime from the app menu.</p>`
+    emailBody += `</div>`
+    emailBody += `<div style="background:#1a1f2e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
+    emailBody += `<p style="color:rgba(255,255,255,0.6);font-size:13px;margin:0;">© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
+    emailBody += `</div></div>`
+
+    await sgMail.send({
+      to: user.email,
+      from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
+      subject: `Your Gatheritup Memories — Q${quarter} ${year}`,
+      html: emailBody
+    })
+
+    res.json({ success: true, count: filtered.length })
+  } catch (err) {
+    console.error('Export error:', err.message)
+    res.status(500).json({ error: 'Could not send export email. Please try again.' })
+  }
+})
+
 // ── MEMORIES API ──────────────────────────────────────────────────────────────
 
 // GET all memories for current user
