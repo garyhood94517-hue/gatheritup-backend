@@ -384,7 +384,7 @@ app.get('/share/:token', async (req, res) => {
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   const { data: users, error } = await supabase
     .from('users')
-    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at, comm_pref, trustee_name, trustee_email, trustee_activation')
+    .select('id, first_name, last_name, email, phone, status, trial_end, paid_at, created_at, comm_pref, trustee_name, trustee_email, trustee_activation, trustee2_name, trustee2_email, legacy_active')
     .order('created_at', { ascending: false })
   if (error) return res.status(500).json({ error: 'Could not fetch users' })
   res.json(users)
@@ -392,10 +392,70 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
 
 app.patch('/api/admin/users/:id/trustee', adminAuth, async (req, res) => {
   const { id } = req.params
-  const { trusteeName, trusteeEmail, activationMode } = req.body
-  const { error } = await supabase.from('users').update({ trustee_name: trusteeName, trustee_email: trusteeEmail, trustee_activation: activationMode }).eq('id', id)
+  const { trusteeName, trusteeEmail, trustee2Name, trustee2Email, activationMode } = req.body
+  const { error } = await supabase.from('users').update({
+    trustee_name: trusteeName,
+    trustee_email: trusteeEmail,
+    trustee2_name: trustee2Name || null,
+    trustee2_email: trustee2Email || null,
+    trustee_activation: activationMode
+  }).eq('id', id)
   if (error) return res.status(500).json({ error: 'Could not update trustee' })
   res.json({ success: true })
+})
+
+// ── LEGACY ACCESS ACTIVATION ──────────────────────────────────────────────────
+app.patch('/api/admin/users/:id/legacy-activate', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { data: user, error } = await supabase.from('users')
+      .select('first_name, last_name, trustee_name, trustee_email, trustee2_name, trustee2_email, legacy_active')
+      .eq('id', id).single()
+    if (error) return res.status(500).json({ error: 'User not found' })
+    const newState = !user.legacy_active
+    await supabase.from('users').update({ legacy_active: newState }).eq('id', id)
+    if (newState) {
+      const fullName = `${user.first_name} ${user.last_name}`
+      const legacyLink = `${process.env.BACKEND_URL || 'https://gatheritup-backend-production.up.railway.app'}/legacy/${id}`
+      const emailText = (toName, role) => `Dear ${toName},
+
+We are reaching out on behalf of ${fullName}'s family.
+
+You have been granted ${role} Legacy Access to ${fullName}'s Gatheritup memories. You may now view and download all of their preserved memories, photos, videos, and stories.
+
+Please click the link below to access their memories:
+${legacyLink}
+
+This link is private and intended only for you. Please treat it with care.
+
+With deepest sympathy,
+The Gatheritup Team`
+      if (user.trustee_email && user.trustee_name) {
+        try {
+          await sgMail.send({
+            to: user.trustee_email,
+            from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
+            subject: `Legacy Access Granted — ${fullName}'s Memories`,
+            text: emailText(user.trustee_name, 'primary')
+          })
+        } catch(e) { console.error('Legacy email 1 error:', e.message) }
+      }
+      if (user.trustee2_email && user.trustee2_name) {
+        try {
+          await sgMail.send({
+            to: user.trustee2_email,
+            from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
+            subject: `Legacy Access Granted — ${fullName}'s Memories`,
+            text: emailText(user.trustee2_name, 'secondary')
+          })
+        } catch(e) { console.error('Legacy email 2 error:', e.message) }
+      }
+    }
+    res.json({ success: true, legacy_active: newState })
+  } catch(err) {
+    console.error('Legacy activate error:', err.message)
+    res.status(500).json({ error: 'Could not update legacy access' })
+  }
 })
 
 app.patch('/api/admin/users/:id/status', adminAuth, async (req, res) => {
