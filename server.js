@@ -706,14 +706,24 @@ app.post('/api/export', authRequired, async (req, res) => {
     emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
     emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">Dear ${user.first_name}, here are your memories from ${quarterNames[quarter]} ${year}. Click any download link to save your photos and videos.</p>`
 
+    const fmtDate = (s) => {
+      if (!s) return ''
+      const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+      const [y, mo, d] = s.split('-')
+      if (d && d !== '01') return `${months[parseInt(mo,10)-1]} ${parseInt(d,10)}, ${y}`
+      if (mo) return `${months[parseInt(mo,10)-1]} ${y}`
+      return y
+    }
+
     filtered.forEach((m, idx) => {
       const files = m.files || []
       const photos = files.filter(f => f.type === 'photo')
       const videos = files.filter(f => f.type === 'video')
+      const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
 
       emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
-      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx + 1}. ${m.title || 'Untitled Memory'}</h2>`
-      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${m.date || ''}</p>`
+      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx + 1}. ${title}</h2>`
+      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${fmtDate(m.date)}</p>`
 
       if (m.caption) {
         emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>`
@@ -750,6 +760,7 @@ app.post('/api/export', authRequired, async (req, res) => {
 
     // Suggestions
     emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:16px 20px;margin-top:8px;">`
+    emailBody += `<p style="font-size:15px;color:#085041;font-weight:700;margin:0 0 10px;">Once you receive this email, download your memories, photos and videos right away and save them somewhere safe.</p>`
     emailBody += `<p style="font-size:14px;color:#085041;font-weight:700;margin:0 0 8px;">Where to save your photos and videos:</p>`
     emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">📱 iPhone or iPad — Save to your Photos app or iCloud Drive</p>`
     emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">💻 Windows or Mac — Save to your Documents folder or an external drive</p>`
