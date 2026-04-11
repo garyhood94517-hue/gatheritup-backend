@@ -219,13 +219,15 @@ app.post('/api/trustee', authRequired, async (req, res) => {
 
 // ── LEGACY ACCESS VIEW PAGE ───────────────────────────────────────────────────
 // Read-only page served to trustees after Legacy Access is activated
-// Trustees can view all memories and export by quarter
+// Trustees can browse by year (paginated) and export everything with one button
 
 app.get('/legacy/:userId', async (req, res) => {
   try {
     const { userId } = req.params
+    const pageSize = 12
+    const page = parseInt(req.query.page) || 1
+    const filterYear = req.query.year ? parseInt(req.query.year) : null
 
-    // Verify legacy access is active
     const { data: user, error } = await supabase
       .from('users')
       .select('first_name, last_name, legacy_active')
@@ -234,95 +236,101 @@ app.get('/legacy/:userId', async (req, res) => {
 
     if (error || !user) return res.status(404).send('<h2>Page not found.</h2>')
     if (!user.legacy_active) return res.status(403).send(`
-      <div style="font-family:Georgia,serif;max-width:500px;margin:80px auto;text-align:center;padding:0 24px;">
+      <div style="font-family:'Source Sans 3',Georgia,sans-serif;max-width:500px;margin:80px auto;text-align:center;padding:0 24px;">
         <h2 style="color:#1a1f2e;">Access Not Yet Available</h2>
         <p style="color:#6b7280;line-height:1.7;">Legacy Access for this account has not been activated yet. If you believe this is an error, please contact us at <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a>.</p>
       </div>`)
 
-    // Get all memories
-    const { data: memories } = await supabase
+    const { data: allMemories } = await supabase
       .from('memories')
       .select('*')
       .eq('user_id', userId)
       .eq('is_sample', false)
-      .order('date', { ascending: true })
+      .order('date', { ascending: false })
 
     const fullName = `${user.first_name} ${user.last_name}`
-    const memoryList = memories || []
+    const memoryList = allMemories || []
 
-    // Group by year/quarter for export UI
-    const quarters = {}
-    memoryList.forEach(m => {
-      const y = m.date ? parseInt(m.date.split('-')[0]) : null
-      const mo = m.date ? parseInt(m.date.split('-')[1]) : null
-      if (!y || !mo) return
-      const q = Math.ceil(mo / 3)
-      const key = `${y}-Q${q}`
-      if (!quarters[key]) quarters[key] = { year: y, quarter: q, count: 0, photos: 0, videos: 0 }
-      quarters[key].count++
-      ;(m.files || []).forEach(f => {
-        if (f.type === 'photo') quarters[key].photos++
-        if (f.type === 'video') quarters[key].videos++
-      })
-    })
+    const yearsWithMemories = [...new Set(
+      memoryList
+        .filter(m => m.date)
+        .map(m => parseInt(m.date.split('-')[0]))
+        .filter(y => !isNaN(y))
+    )].sort((a, b) => b - a)
 
-    const quarterList = Object.values(quarters).sort((a, b) => b.year - a.year || b.quarter - a.quarter)
-    const byYear = {}
-    quarterList.forEach(q => {
-      if (!byYear[q.year]) byYear[q.year] = []
-      byYear[q.year].push(q)
-    })
+    const activeYear = filterYear && yearsWithMemories.includes(filterYear)
+      ? filterYear
+      : (yearsWithMemories[0] || null)
 
-    const quarterNames = { 1: 'January — March', 2: 'April — June', 3: 'July — September', 4: 'October — December' }
+    const yearFiltered = activeYear
+      ? memoryList.filter(m => m.date && parseInt(m.date.split('-')[0]) === activeYear)
+      : memoryList
 
-    const quartersHTML = Object.keys(byYear).sort((a,b) => b-a).map(year => `
-      <div style="margin-bottom:24px;">
-        <div style="font-size:13px;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">${year}</div>
-        ${byYear[year].map(q => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#f9fafb;border-radius:10px;margin-bottom:8px;border:1px solid #e5e7eb;">
-            <div>
-              <div style="font-size:15px;font-weight:600;color:#1a1f2e;margin-bottom:2px;">Q${q.quarter} — ${quarterNames[q.quarter]}</div>
-              <div style="font-size:12px;color:#9ca3af;">${q.count} ${q.count === 1 ? 'memory' : 'memories'}${q.photos > 0 ? ` · ${q.photos} photo${q.photos !== 1 ? 's' : ''}` : ''}${q.videos > 0 ? ` · ${q.videos} video${q.videos !== 1 ? 's' : ''}` : ''}</div>
-            </div>
-            <button onclick="exportQuarter('${userId}','${fullName}',${q.year},${q.quarter})" style="background:#0dbbad;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">📥 Export</button>
-          </div>`).join('')}
-      </div>`).join('')
+    const totalCount = yearFiltered.length
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+    const safePage = Math.min(Math.max(1, page), totalPages)
+    const pageMemories = yearFiltered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
-    const memoriesHTML = memoryList.map((m, idx) => {
-      const files = m.files || []
-      const photos = files.filter(f => f.type === 'photo')
-      const videos = files.filter(f => f.type === 'video')
-      const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
-      const fmtDate = (s) => {
-        if (!s) return ''
-        const [y, mo, d] = s.split('-')
-        if (d && d !== '01') return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${y}`
-        if (mo) return `${months[parseInt(mo)-1]} ${y}`
-        return y
-      }
-      const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+    const totalPhotos = memoryList.reduce((n, m) => n + (m.files || []).filter(f => f.type === 'photo').length, 0)
+    const totalVideos = memoryList.reduce((n, m) => n + (m.files || []).filter(f => f.type === 'video').length, 0)
+    const totalMedia = totalPhotos + totalVideos
+    const yearRange = yearsWithMemories.length > 0
+      ? (yearsWithMemories[yearsWithMemories.length - 1] + ' \u2013 ' + yearsWithMemories[0])
+      : ''
 
-      return `
-        <div style="background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05);">
-          <h3 style="font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin:0 0 4px;">${idx+1}. ${title}</h3>
-          <p style="font-size:13px;color:#9ca3af;margin:0 0 14px;">${fmtDate(m.date)}</p>
-          ${m.caption ? `<p style="font-size:16px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>` : ''}
-          ${photos.length > 0 ? `
-            <div style="margin-bottom:12px;">
-              <div style="font-size:12px;font-weight:700;color:#0dbbad;margin-bottom:8px;">📷 Photos (${photos.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                ${photos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;font-weight:600;">Download Photo ${i+1}</a>`).join('')}
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+    const fmtDate = (s) => {
+      if (!s) return ''
+      const [y, mo, d] = s.split('-')
+      if (d && d !== '01') return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${y}`
+      if (mo) return `${months[parseInt(mo)-1]} ${y}`
+      return y
+    }
+
+    const yearPillsHTML = yearsWithMemories.map(y => `
+      <a href="/legacy/${userId}?year=${y}&page=1"
+         style="display:inline-block;padding:8px 18px;border-radius:20px;font-size:15px;font-family:'Source Sans 3',sans-serif;text-decoration:none;margin:4px;
+                ${y === activeYear
+                  ? 'background:#0dbbad;color:#fff;border:2px solid #0dbbad;'
+                  : 'background:#fff;color:#1a1f2e;border:1.5px solid #d1d5db;'}">${y}</a>
+    `).join('')
+
+    const memoriesHTML = pageMemories.length === 0
+      ? '<p style="color:#9ca3af;text-align:center;padding:32px 0;">No memories found for this year.</p>'
+      : pageMemories.map(m => {
+          const files = m.files || []
+          const photos = files.filter(f => f.type === 'photo')
+          const videos = files.filter(f => f.type === 'video')
+          const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+          const firstPhoto = photos[0]
+          return `
+            <div style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05);">
+              ${firstPhoto
+                ? `<img src="${firstPhoto.url}" alt="${title}" style="width:100%;height:160px;object-fit:cover;display:block;">`
+                : videos[0]
+                  ? `<div style="width:100%;height:160px;background:#1a1f2e;display:flex;align-items:center;justify-content:center;"><div style="width:48px;height:48px;border-radius:50%;background:#0dbbad;display:flex;align-items:center;justify-content:center;"><div style="width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid #fff;margin-left:4px;"></div></div></div>`
+                  : `<div style="width:100%;height:120px;background:#f0faf8;display:flex;align-items:center;justify-content:center;font-size:36px;">&#128221;</div>`
+              }
+              <div style="padding:14px 16px;">
+                <div style="font-family:'Lora',Georgia,serif;font-size:16px;font-weight:600;color:#1a1f2e;margin-bottom:4px;line-height:1.4;">${title}</div>
+                <div style="font-size:13px;color:#9ca3af;margin-bottom:8px;">${fmtDate(m.date)}</div>
+                ${m.caption ? `<div style="font-size:14px;color:#374151;line-height:1.6;font-style:italic;margin-bottom:10px;">${m.caption.length > 120 ? m.caption.substring(0, 120) + '\u2026' : m.caption}</div>` : ''}
+                ${photos.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${photos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 12px;font-size:13px;text-decoration:none;font-weight:600;">&#128247; Photo ${i+1}</a>`).join('')}</div>` : ''}
+                ${videos.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${videos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 12px;font-size:13px;text-decoration:none;font-weight:600;">&#127916; Video ${i+1}</a>`).join('')}</div>` : ''}
               </div>
-            </div>` : ''}
-          ${videos.length > 0 ? `
-            <div>
-              <div style="font-size:12px;font-weight:700;color:#0dbbad;margin-bottom:8px;">🎬 Videos (${videos.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                ${videos.map((f,i) => `<a href="${f.url}" download style="background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;font-weight:600;">Download Video ${i+1}</a>`).join('')}
-              </div>
-            </div>` : ''}
-        </div>`
-    }).join('')
+            </div>`
+        }).join('')
+
+    const paginationHTML = totalPages <= 1 ? '' : `
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:24px;flex-wrap:wrap;">
+        ${safePage > 1
+          ? `<a href="/legacy/${userId}?year=${activeYear}&page=${safePage - 1}" style="padding:10px 22px;border-radius:8px;background:#fff;color:#1a1f2e;border:1.5px solid #d1d5db;text-decoration:none;font-size:15px;font-family:'Source Sans 3',sans-serif;font-weight:600;">\u2190 Previous</a>`
+          : `<span style="padding:10px 22px;border-radius:8px;background:#f3f4f6;color:#d1d5db;border:1.5px solid #e5e7eb;font-size:15px;font-family:'Source Sans 3',sans-serif;">\u2190 Previous</span>`}
+        <span style="font-size:15px;color:#6b7280;font-family:'Source Sans 3',sans-serif;">Page ${safePage} of ${totalPages}</span>
+        ${safePage < totalPages
+          ? `<a href="/legacy/${userId}?year=${activeYear}&page=${safePage + 1}" style="padding:10px 22px;border-radius:8px;background:#fff;color:#1a1f2e;border:1.5px solid #d1d5db;text-decoration:none;font-size:15px;font-family:'Source Sans 3',sans-serif;font-weight:600;">Next \u2192</a>`
+          : `<span style="padding:10px 22px;border-radius:8px;background:#f3f4f6;color:#d1d5db;border:1.5px solid #e5e7eb;font-size:15px;font-family:'Source Sans 3',sans-serif;">Next \u2192</span>`}
+      </div>`
 
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -335,74 +343,95 @@ app.get('/legacy/:userId', async (req, res) => {
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Source Sans 3',sans-serif;background:#f9fafb;color:#1a1f2e;line-height:1.7;}
 .header{background:#1a1f2e;padding:32px 24px;text-align:center;}
-.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:28px;margin-bottom:6px;}
+.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:26px;margin-bottom:6px;line-height:1.3;}
 .header p{color:rgba(255,255,255,0.6);font-size:15px;}
-.content{max-width:680px;margin:0 auto;padding:32px 24px 80px;}
-.section{background:#fff;border-radius:16px;padding:24px;margin-bottom:24px;border:1px solid #e5e7eb;}
-.section-title{font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin-bottom:16px;}
+.content{max-width:720px;margin:0 auto;padding:24px 16px 80px;}
 .notice{background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:14px 18px;margin-bottom:24px;}
 .notice p{font-size:14px;color:#085041;line-height:1.6;margin:0;}
-#exportMsg{display:none;background:#f0faf8;border:1px solid #9FE1CB;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:14px;color:#085041;}
+.section{background:#fff;border-radius:16px;padding:24px;margin-bottom:24px;border:1px solid #e5e7eb;}
+.section-title{font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin-bottom:16px;}
+.stats-bar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;}
+.stat{background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:14px 10px;text-align:center;}
+.stat-num{font-size:22px;font-weight:600;color:#1a1f2e;}
+.stat-label{font-size:12px;color:#9ca3af;margin-top:2px;}
+.export-box{background:#fff;border-radius:16px;border:1px solid #e5e7eb;padding:24px;text-align:center;margin-bottom:24px;}
+.export-btn{display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 40px;border-radius:28px;border:none;cursor:pointer;font-family:'Source Sans 3',sans-serif;}
+.memory-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 footer{background:#1a1f2e;text-align:center;padding:24px;color:rgba(255,255,255,0.5);font-size:13px;}
 footer a{color:#0dbbad;text-decoration:none;}
+@media(max-width:520px){
+  .memory-grid{grid-template-columns:1fr;}
+  .header h1{font-size:22px;}
+  .export-btn{width:100%;padding:16px 24px;}
+  .content{padding:16px 12px 80px;}
+}
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1>The Memories of ${fullName}</h1>
-  <p>Preserved with love using Gatheritup</p>
+  <p>${yearRange ? yearRange + ' &middot; ' : ''}${memoryList.length} memories preserved</p>
 </div>
 
 <div class="content">
 
   <div class="notice">
-    <p>This is a private Legacy Access page. These memories have been entrusted to you. Please download and save everything you'd like to preserve — photos, videos, and stories are available below.</p>
+    <p>This is a private Legacy Access page. These memories have been entrusted to you. Please download and save everything you would like to preserve.</p>
   </div>
 
-  ${quarterList.length > 0 ? `
-  <div class="section">
-    <div class="section-title">Export by Quarter</div>
-    <p style="font-size:14px;color:#6b7280;margin-bottom:16px;">Export a quarter to receive an email with all stories and download links for photos and videos — organized and ready to save.</p>
-    <div id="exportMsg">✅ Export sent! Check the email address on file for this Legacy Access.</div>
-    ${quartersHTML}
-  </div>` : ''}
-
-  <div class="section">
-    <div class="section-title">All Memories (${memoryList.length})</div>
-    ${memoryList.length === 0 ? '<p style="color:#9ca3af;">No memories found.</p>' : memoriesHTML}
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-num">${memoryList.length}</div><div class="stat-label">memories</div></div>
+    <div class="stat"><div class="stat-num">${yearsWithMemories.length}</div><div class="stat-label">${yearsWithMemories.length === 1 ? 'year' : 'years'}</div></div>
+    <div class="stat"><div class="stat-num">${totalMedia}</div><div class="stat-label">photos &amp; videos</div></div>
   </div>
+
+  <div class="export-box">
+    <p style="font-size:15px;color:#6b7280;margin-bottom:16px;line-height:1.6;">Download everything and save to Google Drive, iCloud, or an external hard drive for safekeeping.</p>
+    <button class="export-btn" id="exportBtn" onclick="exportAll()">Export all memories</button>
+    <div style="font-size:13px;color:#9ca3af;margin-top:10px;">A download link will be sent to the email address on file</div>
+    <div id="exportMsg" style="display:none;margin-top:14px;background:#f0faf8;border:1px solid #9FE1CB;border-radius:8px;padding:12px 16px;font-size:14px;color:#085041;">&#10003; Export sent! Check the email address associated with this Legacy Access.</div>
+  </div>
+
+  ${yearsWithMemories.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Browse memories${activeYear ? ' &mdash; ' + activeYear : ''}</div>
+    <div style="margin-bottom:16px;line-height:1;">${yearPillsHTML}</div>
+    <div style="font-size:13px;color:#9ca3af;margin-bottom:16px;">Showing ${(safePage - 1) * pageSize + 1}&ndash;${Math.min(safePage * pageSize, totalCount)} of ${totalCount} ${activeYear ? activeYear + ' ' : ''}memories</div>
+    <div class="memory-grid">${memoriesHTML}</div>
+    ${paginationHTML}
+  </div>` : '<p style="color:#9ca3af;text-align:center;padding:32px 0;">No memories found.</p>'}
 
 </div>
 
 <footer>
-  <p>© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com">support@gatheritup.com</a></p>
-  <p style="margin-top:6px;">If you need help, please contact us — we're here for you.</p>
+  <p>&copy; 2026 Gatheritup.com &middot; <a href="mailto:support@gatheritup.com">support@gatheritup.com</a></p>
+  <p style="margin-top:6px;">If you need help, please contact us &mdash; we&apos;re here for you.</p>
 </footer>
 
 <script>
-async function exportQuarter(userId, fullName, year, quarter) {
-  const btn = event.target
-  btn.textContent = 'Sending…'
+async function exportAll() {
+  const btn = document.getElementById('exportBtn')
+  btn.textContent = 'Sending\u2026'
   btn.disabled = true
   try {
     const res = await fetch('/api/legacy-export', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ userId, year, quarter })
+      body: JSON.stringify({ userId: '${userId}' })
     })
     const data = await res.json()
     if (data.success) {
       document.getElementById('exportMsg').style.display = 'block'
-      btn.textContent = '✅ Sent'
+      btn.textContent = 'Sent!'
     } else {
-      alert('Export failed. Please try again.')
-      btn.textContent = '📥 Export'
+      alert('Export failed. Please try again or contact support@gatheritup.com')
+      btn.textContent = 'Export all memories'
       btn.disabled = false
     }
   } catch(e) {
-    alert('Export failed. Please try again.')
-    btn.textContent = '📥 Export'
+    alert('Export failed. Please try again or contact support@gatheritup.com')
+    btn.textContent = 'Export all memories'
     btn.disabled = false
   }
 }
@@ -416,14 +445,13 @@ async function exportQuarter(userId, fullName, year, quarter) {
 })
 
 // ── LEGACY EXPORT EMAIL ───────────────────────────────────────────────────────
-// Same as customer export but sends to trustee email on file
+// Sends ALL memories to trustee email organized by year
 
 app.post('/api/legacy-export', async (req, res) => {
   try {
-    const { userId, year, quarter } = req.body
-    if (!userId || !year || !quarter) return res.status(400).json({ error: 'Missing fields.' })
+    const { userId } = req.body
+    if (!userId) return res.status(400).json({ error: 'Missing userId.' })
 
-    // Verify legacy is active
     const { data: user } = await supabase.from('users')
       .select('first_name, last_name, trustee_email, trustee_name, trustee2_email, trustee2_name, legacy_active')
       .eq('id', userId).single()
@@ -431,9 +459,7 @@ app.post('/api/legacy-export', async (req, res) => {
     if (!user || !user.legacy_active) return res.status(403).json({ error: 'Legacy access not active.' })
 
     const fullName = `${user.first_name} ${user.last_name}`
-    const quarterNames = { 1: 'January — March', 2: 'April — June', 3: 'July — September', 4: 'October — December' }
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
-
     const fmtDate = (s) => {
       if (!s) return ''
       const [y, mo, d] = s.split('-')
@@ -442,74 +468,64 @@ app.post('/api/legacy-export', async (req, res) => {
       return y
     }
 
-    // Get memories for this quarter
-    const { data: memories } = await supabase.from('memories').select('*').eq('user_id', userId).eq('is_sample', false)
-    const quarterStart = new Date(`${year}-${String((quarter-1)*3+1).padStart(2,'0')}-01`)
-    const quarterEnd = new Date(`${year}-${String(quarter*3).padStart(2,'0')}-31`)
-    const filtered = (memories||[]).filter(m => {
-      if (!m.date) return false
-      const d = new Date(m.date)
-      return d >= quarterStart && d <= quarterEnd
-    }).sort((a,b) => new Date(a.date) - new Date(b.date))
+    const { data: memories } = await supabase.from('memories')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_sample', false)
+      .order('date', { ascending: false })
 
-    if (filtered.length === 0) return res.status(400).json({ error: 'No memories for this quarter.' })
+    const memoryList = memories || []
+    if (memoryList.length === 0) return res.status(400).json({ error: 'No memories found.' })
 
-    // Build email - same format as customer export but trustee tone
+    const byYear = {}
+    memoryList.forEach(m => {
+      const y = m.date ? m.date.split('-')[0] : 'Unknown'
+      if (!byYear[y]) byYear[y] = []
+      byYear[y].push(m)
+    })
+
     let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
     emailBody += `<div style="background:#1a1f2e;padding:24px 32px;border-radius:12px 12px 0 0;">`
     emailBody += `<h1 style="color:#fff;margin:0;font-size:24px;">The Memories of ${fullName}</h1>`
-    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:16px;">Q${quarter} ${year} — ${quarterNames[quarter]}</p>`
+    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:15px;">${memoryList.length} memories &mdash; all years</p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
-    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">Here are ${fullName}'s memories from ${quarterNames[quarter]} ${year}.</p>`
+    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 6px;">Your loved one's memories, photos, and videos are ready to download.</p>`
+    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">We recommend saving everything to Google Drive, iCloud, or an external hard drive for safekeeping.</p>`
 
-    filtered.forEach((m, idx) => {
-      const files = m.files || []
-      const photos = files.filter(f => f.type === 'photo')
-      const videos = files.filter(f => f.type === 'video')
-      const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
-
-      emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
-      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx+1}. ${title}</h2>`
-      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${fmtDate(m.date)}</p>`
-      if (m.caption) emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>`
-
-      if (photos.length > 0) {
-        emailBody += `<div style="margin-bottom:12px;"><p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">📷 Photos (${photos.length})</p>`
-        photos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">📷 Download Photo ${i+1}</a>` })
+    Object.keys(byYear).sort((a,b) => b - a).forEach(year => {
+      emailBody += `<div style="font-size:13px;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin:24px 0 12px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">${year}</div>`
+      byYear[year].forEach(m => {
+        const files = m.files || []
+        const photos = files.filter(f => f.type === 'photo')
+        const videos = files.filter(f => f.type === 'video')
+        const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+        emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:16px;border:1px solid #e5e7eb;">`
+        emailBody += `<h2 style="font-size:17px;color:#1a1f2e;margin:0 0 4px;">${title}</h2>`
+        emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 10px;">${fmtDate(m.date)}</p>`
+        if (m.caption) emailBody += `<p style="font-size:14px;color:#374151;line-height:1.7;margin:0 0 14px;font-style:italic;">${m.caption}</p>`
+        photos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">Photo ${i+1} &mdash; Download</a>` })
+        videos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">Video ${i+1} &mdash; Download</a>` })
         emailBody += `</div>`
-      }
-      if (videos.length > 0) {
-        emailBody += `<div><p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">🎬 Videos (${videos.length})</p>`
-        videos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;">🎬 Download Video ${i+1}</a>` })
-        emailBody += `</div>`
-      }
-      emailBody += `</div>`
+      })
     })
 
-    emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:16px 20px;margin-top:8px;">`
-    emailBody += `<p style="font-size:15px;color:#085041;font-weight:700;margin:0 0 10px;">Please download and save these memories somewhere safe.</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;font-weight:700;margin:0 0 8px;">Where to save:</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">📱 iPhone or iPad — Save to Photos app or iCloud Drive</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">💻 Windows or Mac — Save to Documents folder or external drive</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0;">☁️ Cloud — Save to Google Drive or Dropbox</p>`
-    emailBody += `</div>`
-    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">With care — The Gatheritup Team</p>`
+    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">With care &mdash; The Gatheritup Team &middot; <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#1a1f2e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
-    emailBody += `<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
+    emailBody += `<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">&copy; 2026 Gatheritup.com</p>`
     emailBody += `</div></div>`
 
-    // Send to both trustees
     const recipients = []
     if (user.trustee_email) recipients.push({ email: user.trustee_email, name: user.trustee_name || 'Trustee' })
     if (user.trustee2_email) recipients.push({ email: user.trustee2_email, name: user.trustee2_name || 'Trustee' })
+    if (recipients.length === 0) return res.status(400).json({ error: 'No trustee email on file.' })
 
     for (const r of recipients) {
       await sgMail.send({
         to: r.email,
         from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-        subject: `The Memories of ${fullName} — Q${quarter} ${year}`,
+        subject: `The Memories of ${fullName} \u2014 Ready to Download`,
         html: emailBody
       })
     }
