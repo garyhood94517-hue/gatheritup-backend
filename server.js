@@ -721,7 +721,7 @@ app.patch('/api/admin/users/:id/legacy-activate', adminAuth, async (req, res) =>
     await supabase.from('users').update({ legacy_active: newState }).eq('id', id)
     if (newState) {
       const fullName = `${user.first_name} ${user.last_name}`
-      const legacyLink = `${process.env.BACKEND_URL || 'https://gatheritup-backend-production.up.railway.app'}/legacy/${id}`
+      const legacyLink = `https://gatheritup-backend-production.up.railway.app/legacy/${id}`
       const emailText = (toName, role) => `Dear ${toName},
 
 We are reaching out on behalf of ${fullName}'s family.
