@@ -393,7 +393,16 @@ footer a{color:rgba(255,255,255,0.8);text-decoration:none;}
     <p style="font-size:15px;color:#6b7280;margin-bottom:16px;line-height:1.6;">When you are ready, save these memories somewhere safe for the family.</p>
     <button class="export-btn" id="exportBtn" onclick="exportAll()">Export all memories</button>
     <div style="font-size:13px;color:#9ca3af;margin-top:10px;">Download links will be sent to your email &mdash; organized by year</div>
-    <div id="exportMsg" style="display:none;margin-top:14px;background:#f0faf8;border:1px solid #9FE1CB;border-radius:8px;padding:12px 16px;font-size:14px;color:#085041;">&#10003; Done! Your download links are on their way to your email.</div>
+  </div>
+
+  <!-- Export confirmation popup -->
+  <div id="exportPopup" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;padding:32px 24px;max-width:340px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+      <div style="font-size:40px;margin-bottom:12px;">&#10003;</div>
+      <div style="font-size:17px;font-weight:700;color:#085041;margin-bottom:8px;">Your download links are on their way!</div>
+      <div style="font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.6;">Check your email &mdash; links are organized by year for easy saving.</div>
+      <button onclick="closePopup()" style="background:#0dbbad;color:#fff;border:none;border-radius:10px;padding:12px 32px;font-size:15px;font-weight:700;cursor:pointer;">OK</button>
+    </div>
   </div>
 
   ${yearsWithMemories.length > 0 ? `
@@ -413,6 +422,10 @@ footer a{color:rgba(255,255,255,0.8);text-decoration:none;}
 </footer>
 
 <script>
+function closePopup() {
+  document.getElementById('exportPopup').style.display = 'none'
+}
+
 async function exportAll() {
   const btn = document.getElementById('exportBtn')
   btn.textContent = 'Sending\u2026'
@@ -425,8 +438,11 @@ async function exportAll() {
     })
     const data = await res.json()
     if (data.success) {
-      document.getElementById('exportMsg').style.display = 'block'
-      btn.textContent = 'Sent!'
+      btn.textContent = 'Export all memories'
+      btn.disabled = false
+      const popup = document.getElementById('exportPopup')
+      popup.style.display = 'flex'
+      setTimeout(() => { popup.style.display = 'none' }, 5000)
     } else {
       alert('Something went wrong. Please try again or contact support@gatheritup.com')
       btn.textContent = 'Export all memories'
