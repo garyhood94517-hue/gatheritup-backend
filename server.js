@@ -343,11 +343,11 @@ app.get('/legacy/:userId', async (req, res) => {
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Source Sans 3',sans-serif;background:#f9fafb;color:#1a1f2e;line-height:1.7;}
 .header{background:#0a6b5e;padding:36px 24px;text-align:center;}
-.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:26px;margin-bottom:8px;line-height:1.3;}
-.header-line{width:40px;height:1px;background:rgba(255,255,255,0.4);margin:0 auto 10px;}
-.header p{color:rgba(255,255,255,0.65);font-size:14px;}
+.header-line{width:40px;height:1px;background:rgba(255,255,255,0.4);margin:0 auto;}
+.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:26px;margin:12px 0 8px;line-height:1.3;}
+.header p{color:rgba(255,255,255,0.6);font-size:14px;}
 .content{max-width:720px;margin:0 auto;padding:24px 16px 80px;}
-.notice{background:#f0faf8;border-left:4px solid #0dbbad;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:24px;}
+.notice{background:#f0faf8;border-left:4px solid #0dbbad;border-radius:0 8px 8px 0;padding:16px 18px;margin-bottom:24px;}
 .notice p{font-size:15px;color:#085041;line-height:1.7;margin:0;font-family:'Lora',Georgia,serif;font-style:italic;}
 .section{background:#fff;border-radius:16px;padding:24px;margin-bottom:24px;border:1px solid #e5e7eb;}
 .section-title{font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin-bottom:16px;}
@@ -356,12 +356,8 @@ body{font-family:'Source Sans 3',sans-serif;background:#f9fafb;color:#1a1f2e;lin
 .stat-num{font-size:22px;font-weight:600;color:#1a1f2e;}
 .stat-label{font-size:12px;color:#9ca3af;margin-top:2px;}
 .export-box{background:#fff;border-radius:16px;border:1px solid #e5e7eb;padding:24px;text-align:center;margin-bottom:24px;}
-.export-btn{display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 40px;border-radius:28px;border:none;cursor:pointer;font-family:'Source Sans 3',sans-serif;text-decoration:none;}
+.export-btn{display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 40px;border-radius:28px;border:none;cursor:pointer;font-family:'Source Sans 3',sans-serif;}
 .memory-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-.memory-card{background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-.memory-card-body{padding:14px 16px;}
-.memory-title{font-family:'Lora',Georgia,serif;font-size:16px;font-weight:600;color:#1a1f2e;margin-bottom:4px;line-height:1.4;}
-.memory-date{font-size:13px;color:#9ca3af;}
 footer{background:#0a6b5e;text-align:center;padding:24px;color:rgba(255,255,255,0.5);font-size:13px;}
 footer a{color:rgba(255,255,255,0.8);text-decoration:none;}
 @media(max-width:520px){
@@ -395,8 +391,9 @@ footer a{color:rgba(255,255,255,0.8);text-decoration:none;}
 
   <div class="export-box">
     <p style="font-size:15px;color:#6b7280;margin-bottom:16px;line-height:1.6;">When you are ready, save these memories somewhere safe for the family.</p>
-    <a href="/legacy/${userId}/export" class="export-btn">Export all memories</a>
-    <div style="font-size:13px;color:#9ca3af;margin-top:10px;">Photos, videos and stories &mdash; all organized by year</div>
+    <button class="export-btn" id="exportBtn" onclick="exportAll()">Export all memories</button>
+    <div style="font-size:13px;color:#9ca3af;margin-top:10px;">Download links will be sent to your email &mdash; organized by year</div>
+    <div id="exportMsg" style="display:none;margin-top:14px;background:#f0faf8;border:1px solid #9FE1CB;border-radius:8px;padding:12px 16px;font-size:14px;color:#085041;">&#10003; Done! Your download links are on their way to your email.</div>
   </div>
 
   ${yearsWithMemories.length > 0 ? `
@@ -431,12 +428,12 @@ async function exportAll() {
       document.getElementById('exportMsg').style.display = 'block'
       btn.textContent = 'Sent!'
     } else {
-      alert('Export failed. Please try again or contact support@gatheritup.com')
+      alert('Something went wrong. Please try again or contact support@gatheritup.com')
       btn.textContent = 'Export all memories'
       btn.disabled = false
     }
   } catch(e) {
-    alert('Export failed. Please try again or contact support@gatheritup.com')
+    alert('Something went wrong. Please try again or contact support@gatheritup.com')
     btn.textContent = 'Export all memories'
     btn.disabled = false
   }
@@ -451,7 +448,7 @@ async function exportAll() {
 })
 
 // ── LEGACY EXPORT EMAIL ───────────────────────────────────────────────────────
-// Sends organized download links by year — no individual memory details
+// Sends ALL memories to trustee email organized by year
 
 app.post('/api/legacy-export', async (req, res) => {
   try {
@@ -465,6 +462,14 @@ app.post('/api/legacy-export', async (req, res) => {
     if (!user || !user.legacy_active) return res.status(403).json({ error: 'Legacy access not active.' })
 
     const fullName = `${user.first_name} ${user.last_name}`
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+    const fmtDate = (s) => {
+      if (!s) return ''
+      const [y, mo, d] = s.split('-')
+      if (d && d !== '01') return `${months[parseInt(mo)-1]} ${parseInt(d)}, ${y}`
+      if (mo) return `${months[parseInt(mo)-1]} ${y}`
+      return y
+    }
 
     const { data: memories } = await supabase.from('memories')
       .select('*')
@@ -475,58 +480,46 @@ app.post('/api/legacy-export', async (req, res) => {
     const memoryList = memories || []
     if (memoryList.length === 0) return res.status(400).json({ error: 'No memories found.' })
 
-    // Group by year
     const byYear = {}
     memoryList.forEach(m => {
       const y = m.date ? m.date.split('-')[0] : 'Unknown'
-      if (!byYear[y]) byYear[y] = { memories: [], photos: 0, videos: 0 }
-      byYear[y].memories.push(m)
-      ;(m.files || []).forEach(f => {
-        if (f.type === 'photo') byYear[y].photos++
-        if (f.type === 'video') byYear[y].videos++
-      })
+      if (!byYear[y]) byYear[y] = []
+      byYear[y].push(m)
     })
 
-    const totalPhotos = memoryList.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='photo').length, 0)
-    const totalVideos = memoryList.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='video').length, 0)
-    const legacyLink = `https://gatheritup-backend-production.up.railway.app/legacy/${userId}`
-
-    // Build clean email — year headers only, no individual memory details
     let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
     emailBody += `<div style="background:#0a6b5e;padding:28px 32px;border-radius:12px 12px 0 0;text-align:center;">`
     emailBody += `<div style="width:40px;height:1px;background:rgba(255,255,255,0.4);margin:0 auto 14px;"></div>`
     emailBody += `<h1 style="font-family:Georgia,serif;color:#fff;margin:0;font-size:22px;font-weight:600;">The Memories of ${fullName}</h1>`
-    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px;">${memoryList.length} memories &mdash; ${totalPhotos} photos &mdash; ${totalVideos} videos</p>`
+    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px;">${memoryList.length} memories &mdash; all years</p>`
     emailBody += `<div style="width:40px;height:1px;background:rgba(255,255,255,0.4);margin:14px auto 0;"></div>`
     emailBody += `</div>`
     emailBody += `<div style="background:#f9fafb;padding:28px 32px;">`
     emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:24px;">`
-    emailBody += `<p style="font-size:15px;color:#085041;font-style:italic;font-family:Georgia,serif;margin:0;line-height:1.7;">These memories have been entrusted to you. Take your time &mdash; there is no rush.</p>`
+    emailBody += `<p style="font-size:15px;color:#085041;font-style:italic;font-family:Georgia,serif;margin:0 0 10px;line-height:1.7;">Your loved one&apos;s memories, photos, and videos are ready to download.</p>`
+    emailBody += `<p style="font-size:15px;color:#085041;font-style:italic;font-family:Georgia,serif;margin:0;line-height:1.7;">Please save these memories somewhere safe soon &mdash; we want to make sure nothing is ever lost.</p>`
     emailBody += `</div>`
 
-    // Year sections — just header and download button per year
-    Object.keys(byYear).sort((a,b) => b-a).forEach(year => {
-      const yd = byYear[year]
-      const mediaCount = yd.photos + yd.videos
-      emailBody += `<div style="margin-bottom:16px;background:#fff;border-radius:10px;padding:18px 20px;border:1px solid #e5e7eb;">`
-      emailBody += `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">`
-      emailBody += `<div>`
-      emailBody += `<div style="font-size:18px;font-weight:600;color:#1a1f2e;font-family:Georgia,serif;">${year}</div>`
-      emailBody += `<div style="font-size:13px;color:#9ca3af;margin-top:2px;">${yd.memories.length} ${yd.memories.length === 1 ? 'memory' : 'memories'}${mediaCount > 0 ? ' &middot; ' + mediaCount + ' photos &amp; videos' : ''}</div>`
-      emailBody += `</div>`
-      emailBody += `<a href="${legacyLink}?year=${year}" style="display:inline-block;background:#0dbbad;color:#fff;font-size:14px;font-weight:600;padding:10px 22px;border-radius:20px;text-decoration:none;font-family:'Helvetica Neue',Arial,sans-serif;">View ${year} memories</a>`
-      emailBody += `</div>`
-      emailBody += `</div>`
+    Object.keys(byYear).sort((a,b) => b - a).forEach(year => {
+      emailBody += `<div style="font-size:13px;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin:24px 0 12px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">${year}</div>`
+      byYear[year].forEach(m => {
+        const files = m.files || []
+        const photos = files.filter(f => f.type === 'photo')
+        const videos = files.filter(f => f.type === 'video')
+        const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
+        emailBody += `<div style="background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:12px;border:1px solid #e5e7eb;">`
+        emailBody += `<h2 style="font-size:16px;color:#1a1f2e;margin:0 0 4px;font-family:Georgia,serif;">${title}</h2>`
+        emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 10px;">${fmtDate(m.date)}</p>`
+        photos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;font-weight:600;">&#128247; Photo ${i+1} &mdash; Download</a>` })
+        videos.forEach((f,i) => { emailBody += `<a href="${f.url}" style="display:block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:6px;font-weight:600;">&#127916; Video ${i+1} &mdash; Download</a>` })
+        emailBody += `</div>`
+      })
     })
 
-    emailBody += `<div style="margin-top:8px;padding:18px 0;border-top:1px solid #e5e7eb;">`
-    emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 12px;">Your loved one&apos;s memories, photos, and videos are ready to download.</p>`
-    emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0;">We recommend saving everything to Google Drive, iCloud, or an external hard drive for safekeeping.</p>`
+    emailBody += `<div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:20px;">`
+    emailBody += `<p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 16px;">We recommend saving everything to Google Drive, iCloud, or an external hard drive for safekeeping.</p>`
+    emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0;">With care &mdash; The Gatheritup Team &middot; <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
     emailBody += `</div>`
-    emailBody += `<div style="text-align:center;margin-top:16px;">`
-    emailBody += `<a href="${legacyLink}/export" style="display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 36px;border-radius:28px;text-decoration:none;font-family:'Helvetica Neue',Arial,sans-serif;">Download all memories</a>`
-    emailBody += `</div>`
-    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:20px;">With care &mdash; The Gatheritup Team &middot; <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#0a6b5e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
     emailBody += `<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">&copy; 2026 Gatheritup.com</p>`
@@ -541,7 +534,7 @@ app.post('/api/legacy-export', async (req, res) => {
       await sgMail.send({
         to: r.email,
         from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-        subject: `The Memories of ${fullName} — Ready to Download`,
+        subject: `The Memories of ${fullName} \u2014 Ready to Download`,
         html: emailBody
       })
     }
@@ -549,283 +542,6 @@ app.post('/api/legacy-export', async (req, res) => {
     res.json({ success: true })
   } catch(err) {
     console.error('Legacy export error:', err.message)
-    res.status(500).json({ error: 'Export failed.' })
-  }
-})
-
-// ── LEGACY EXPORT PAGE ───────────────────────────────────────────────────────
-// Page 2 — trustee chooses how to download their memories
-
-app.get('/legacy/:userId/export', async (req, res) => {
-  try {
-    const { userId } = req.params
-
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('first_name, last_name, legacy_active')
-      .eq('id', userId)
-      .single()
-
-    if (error || !user) return res.status(404).send('<h2>Page not found.</h2>')
-    if (!user.legacy_active) return res.status(403).send('<h2>Access not available.</h2>')
-
-    const { data: allMemories } = await supabase
-      .from('memories')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_sample', false)
-      .order('date', { ascending: false })
-
-    const fullName = `${user.first_name} ${user.last_name}`
-    const memoryList = allMemories || []
-
-    const yearsWithMemories = [...new Set(
-      memoryList.filter(m => m.date).map(m => parseInt(m.date.split('-')[0])).filter(y => !isNaN(y))
-    )].sort((a,b) => b-a)
-
-    const byYear = {}
-    memoryList.forEach(m => {
-      const y = m.date ? m.date.split('-')[0] : 'Unknown'
-      if (!byYear[y]) byYear[y] = { count: 0, photos: 0, videos: 0 }
-      byYear[y].count++
-      ;(m.files||[]).forEach(f => {
-        if (f.type==='photo') byYear[y].photos++
-        if (f.type==='video') byYear[y].videos++
-      })
-    })
-
-    const totalPhotos = memoryList.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='photo').length, 0)
-    const totalVideos = memoryList.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='video').length, 0)
-    const legacyLink = `https://gatheritup-backend-production.up.railway.app/legacy/${userId}`
-
-    const yearRowsHTML = Object.keys(byYear).sort((a,b)=>b-a).map(year => {
-      const yd = byYear[year]
-      const mediaCount = yd.photos + yd.videos
-      return `
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px;background:#f9fafb;border-radius:10px;margin-bottom:10px;border:1px solid #e5e7eb;">
-          <div>
-            <div style="font-size:17px;font-weight:600;color:#1a1f2e;font-family:'Lora',Georgia,serif;">${year}</div>
-            <div style="font-size:13px;color:#9ca3af;margin-top:2px;">${yd.count} ${yd.count===1?'memory':'memories'}${mediaCount>0?' &middot; '+mediaCount+' photos &amp; videos':''}</div>
-          </div>
-          <button onclick="downloadYear('${userId}','${year}',this)" style="background:#0dbbad;color:#fff;border:none;border-radius:20px;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Source Sans 3',sans-serif;white-space:nowrap;">Download ${year}</button>
-        </div>`
-    }).join('')
-
-    res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Download — The Memories of ${fullName}</title>
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet"/>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Source Sans 3',sans-serif;background:#f9fafb;color:#1a1f2e;line-height:1.7;}
-.header{background:#0a6b5e;padding:28px 24px;text-align:center;}
-.header h1{font-family:'Lora',Georgia,serif;color:#fff;font-size:22px;margin-bottom:4px;}
-.header p{color:rgba(255,255,255,0.6);font-size:14px;}
-.back{display:inline-block;color:rgba(255,255,255,0.7);font-size:14px;text-decoration:none;margin-bottom:12px;}
-.content{max-width:680px;margin:0 auto;padding:24px 16px 80px;}
-.card{background:#fff;border-radius:16px;border:1px solid #e5e7eb;padding:24px;margin-bottom:20px;}
-.card-title{font-family:'Lora',Georgia,serif;font-size:20px;color:#1a1f2e;margin-bottom:6px;}
-.card-sub{font-size:14px;color:#6b7280;margin-bottom:16px;line-height:1.6;}
-.big-btn{display:block;width:100%;background:#0dbbad;color:#fff;border:none;border-radius:12px;padding:16px 24px;font-size:16px;font-weight:600;cursor:pointer;font-family:'Source Sans 3',sans-serif;text-align:center;margin-bottom:10px;}
-.notice-box{background:#f0faf8;border-left:4px solid #0dbbad;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:20px;}
-.notice-box p{font-size:14px;color:#085041;line-height:1.6;margin:0;}
-.spinner{display:none;text-align:center;padding:16px;}
-.spinner-ring{width:32px;height:32px;border:3px solid #e5e7eb;border-top:3px solid #0dbbad;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 10px;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.device-tip{display:none;background:#fdf6ee;border:1px solid #e5e0d8;border-radius:8px;padding:14px 18px;margin-top:12px;font-size:14px;color:#374151;line-height:1.7;}
-footer{background:#0a6b5e;text-align:center;padding:20px;color:rgba(255,255,255,0.5);font-size:13px;}
-footer a{color:rgba(255,255,255,0.7);text-decoration:none;}
-@media(max-width:520px){.big-btn{font-size:15px;padding:14px 20px;}}
-</style>
-</head>
-<body>
-
-<div class="header">
-  <a href="/legacy/${userId}" class="back">&larr; Back to memories</a>
-  <h1>Download the Memories of ${fullName}</h1>
-  <p>${memoryList.length} memories &middot; ${totalPhotos} photos &middot; ${totalVideos} videos</p>
-</div>
-
-<div class="content">
-
-  <div class="notice-box">
-    <p>Your loved one&apos;s memories, photos, and videos are ready to download. We recommend saving everything to Google Drive, iCloud, or an external hard drive for safekeeping.</p>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Download everything</div>
-    <div class="card-sub">All memories, photos and videos from every year in one download.</div>
-    <button class="big-btn" id="downloadAllBtn" onclick="downloadAll(this)">Download all memories</button>
-    <div class="spinner" id="allSpinner">
-      <div class="spinner-ring"></div>
-      <div style="font-size:14px;color:#6b7280;">Preparing your download &mdash; gathering ${memoryList.length} memories across ${yearsWithMemories.length} years. Almost ready&hellip;</div>
-    </div>
-    <div class="device-tip" id="deviceTip"></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Download by year</div>
-    <div class="card-sub">Choose a specific year to download.</div>
-    ${yearRowsHTML}
-    <div class="spinner" id="yearSpinner">
-      <div class="spinner-ring"></div>
-      <div style="font-size:14px;color:#6b7280;" id="yearSpinnerMsg">Preparing your download&hellip;</div>
-    </div>
-  </div>
-
-  <div style="text-align:center;padding:8px 0;">
-    <a href="/legacy/${userId}" style="color:#0dbbad;font-size:14px;text-decoration:none;">&larr; Back to browsing memories</a>
-  </div>
-
-</div>
-
-<footer>
-  <p>&copy; 2026 Gatheritup.com &middot; <a href="mailto:support@gatheritup.com">support@gatheritup.com</a></p>
-  <p style="margin-top:4px;">If you need any help, please reach out &mdash; we are here for you.</p>
-</footer>
-
-<script>
-function getDeviceTip() {
-  const ua = navigator.userAgent
-  if (/iPad|iPhone|iPod/.test(ua)) return 'On iPhone or iPad, your download will appear in the <strong>Files app</strong>. For large downloads we recommend saving to <strong>iCloud Drive</strong> or emailing the link to yourself to download on a computer.'
-  if (/Android/.test(ua)) return 'On Android, your download will appear in your <strong>Downloads folder</strong>. For large downloads we recommend saving to <strong>Google Drive</strong>.'
-  if (/Mac/.test(ua)) return 'On Mac, your download will appear in your <strong>Downloads folder</strong> in Finder.'
-  return 'Your download will appear in your <strong>Downloads folder</strong>. We recommend also saving a copy to Google Drive or iCloud for extra safety.'
-}
-
-async function downloadAll(btn) {
-  btn.disabled = true
-  btn.textContent = 'Preparing…'
-  document.getElementById('allSpinner').style.display = 'block'
-  try {
-    const res = await fetch('/api/legacy-export', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ userId: '${userId}' })
-    })
-    const data = await res.json()
-    document.getElementById('allSpinner').style.display = 'none'
-    if (data.success) {
-      btn.textContent = '✓ Download link sent to email'
-      btn.style.background = '#0F6E56'
-      const tip = document.getElementById('deviceTip')
-      tip.innerHTML = getDeviceTip()
-      tip.style.display = 'block'
-    } else {
-      btn.textContent = 'Download all memories'
-      btn.disabled = false
-      alert('Something went wrong. Please try again or contact support@gatheritup.com')
-    }
-  } catch(e) {
-    document.getElementById('allSpinner').style.display = 'none'
-    btn.textContent = 'Download all memories'
-    btn.disabled = false
-    alert('Something went wrong. Please try again or contact support@gatheritup.com')
-  }
-}
-
-async function downloadYear(userId, year, btn) {
-  btn.disabled = true
-  btn.textContent = 'Preparing…'
-  document.getElementById('yearSpinnerMsg').textContent = 'Preparing your ' + year + ' memories…'
-  document.getElementById('yearSpinner').style.display = 'block'
-  try {
-    const res = await fetch('/api/legacy-export-year', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ userId, year })
-    })
-    const data = await res.json()
-    document.getElementById('yearSpinner').style.display = 'none'
-    if (data.success) {
-      btn.textContent = '✓ Sent'
-      btn.style.background = '#0F6E56'
-    } else {
-      btn.textContent = 'Download ' + year
-      btn.disabled = false
-      alert('Something went wrong. Please try again or contact support@gatheritup.com')
-    }
-  } catch(e) {
-    document.getElementById('yearSpinner').style.display = 'none'
-    btn.textContent = 'Download ' + year
-    btn.disabled = false
-    alert('Something went wrong. Please try again or contact support@gatheritup.com')
-  }
-}
-</script>
-</body>
-</html>`)
-  } catch(err) {
-    console.error('Legacy export page error:', err.message)
-    res.status(500).send('<h2>Something went wrong. Please contact support@gatheritup.com</h2>')
-  }
-})
-
-// ── LEGACY EXPORT BY YEAR EMAIL ───────────────────────────────────────────────
-
-app.post('/api/legacy-export-year', async (req, res) => {
-  try {
-    const { userId, year } = req.body
-    if (!userId || !year) return res.status(400).json({ error: 'Missing fields.' })
-
-    const { data: user } = await supabase.from('users')
-      .select('first_name, last_name, trustee_email, trustee_name, trustee2_email, trustee2_name, legacy_active')
-      .eq('id', userId).single()
-
-    if (!user || !user.legacy_active) return res.status(403).json({ error: 'Legacy access not active.' })
-
-    const fullName = `${user.first_name} ${user.last_name}`
-
-    const { data: memories } = await supabase.from('memories')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_sample', false)
-      .order('date', { ascending: false })
-
-    const yearMemories = (memories||[]).filter(m => m.date && m.date.startsWith(year))
-    if (yearMemories.length === 0) return res.status(400).json({ error: 'No memories for this year.' })
-
-    const totalPhotos = yearMemories.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='photo').length, 0)
-    const totalVideos = yearMemories.reduce((n,m) => n + (m.files||[]).filter(f=>f.type==='video').length, 0)
-    const legacyLink = `https://gatheritup-backend-production.up.railway.app/legacy/${userId}`
-
-    let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
-    emailBody += `<div style="background:#0a6b5e;padding:28px 32px;border-radius:12px 12px 0 0;text-align:center;">`
-    emailBody += `<h1 style="font-family:Georgia,serif;color:#fff;margin:0;font-size:22px;font-weight:600;">The Memories of ${fullName}</h1>`
-    emailBody += `<p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px;">${year} &mdash; ${yearMemories.length} memories &middot; ${totalPhotos} photos &middot; ${totalVideos} videos</p>`
-    emailBody += `</div>`
-    emailBody += `<div style="background:#f9fafb;padding:28px 32px;">`
-    emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 12px;">Your loved one&apos;s memories, photos, and videos from ${year} are ready to download.</p>`
-    emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px;">We recommend saving everything to Google Drive, iCloud, or an external hard drive for safekeeping.</p>`
-    emailBody += `<div style="text-align:center;margin-bottom:24px;">`
-    emailBody += `<a href="${legacyLink}?year=${year}" style="display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 36px;border-radius:28px;text-decoration:none;font-family:'Helvetica Neue',Arial,sans-serif;">View ${year} memories &amp; download</a>`
-    emailBody += `</div>`
-    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin:0;">With care &mdash; The Gatheritup Team &middot; <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
-    emailBody += `</div>`
-    emailBody += `<div style="background:#0a6b5e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
-    emailBody += `<p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">&copy; 2026 Gatheritup.com</p>`
-    emailBody += `</div></div>`
-
-    const recipients = []
-    if (user.trustee_email) recipients.push({ email: user.trustee_email })
-    if (user.trustee2_email) recipients.push({ email: user.trustee2_email })
-    if (recipients.length === 0) return res.status(400).json({ error: 'No trustee email on file.' })
-
-    for (const r of recipients) {
-      await sgMail.send({
-        to: r.email,
-        from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-        subject: `The Memories of ${fullName} — ${year}`,
-        html: emailBody
-      })
-    }
-
-    res.json({ success: true })
-  } catch(err) {
-    console.error('Legacy year export error:', err.message)
     res.status(500).json({ error: 'Export failed.' })
   }
 })
