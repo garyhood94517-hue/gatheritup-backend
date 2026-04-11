@@ -738,26 +738,37 @@ app.patch('/api/admin/users/:id/legacy-activate', adminAuth, async (req, res) =>
     if (newState) {
       const fullName = `${user.first_name} ${user.last_name}`
       const legacyLink = `https://gatheritup-backend-production.up.railway.app/legacy/${id}`
-      const emailText = (toName, role) => `Dear ${toName},
 
-We are reaching out on behalf of ${fullName}'s family.
+      const buildEmail = (toName) => `
+<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">
+  <div style="background:#1a1f2e;padding:24px 32px;border-radius:12px 12px 0 0;">
+    <h1 style="color:#fff;margin:0;font-size:22px;font-weight:600;">The Memories of ${fullName}</h1>
+    <p style="color:rgba(255,255,255,0.6);margin:6px 0 0;font-size:14px;">A private Legacy Access message</p>
+  </div>
+  <div style="background:#f9fafb;padding:28px 32px;">
+    <p style="font-size:16px;color:#1a1f2e;margin:0 0 12px;">Dear ${toName},</p>
+    <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 12px;">We are reaching out on behalf of ${fullName}'s family.</p>
+    <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px;">You have been granted Legacy Access to ${fullName}'s Gatheritup memories. Please take your time browsing their preserved photos, videos, and stories — and when you are ready, you can download everything to save for the family.</p>
+    <div style="text-align:center;margin:0 0 24px;">
+      <a href="${legacyLink}" style="display:inline-block;background:#0dbbad;color:#fff;font-size:16px;font-weight:600;padding:14px 36px;border-radius:28px;text-decoration:none;font-family:'Helvetica Neue',Arial,sans-serif;">View ${fullName}'s memories</a>
+    </div>
+    <div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 24px;">
+      <p style="font-size:14px;color:#085041;margin:0;line-height:1.6;">This link is private and intended only for you. Please treat it with care.</p>
+    </div>
+    <p style="font-size:14px;color:#6b7280;margin:0;line-height:1.6;">If you need any help at any time, please reach us at <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a> — we are here for you.</p>
+  </div>
+  <div style="background:#1a1f2e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">
+    <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0;">With care &mdash; The Gatheritup Team</p>
+  </div>
+</div>`
 
-You have been granted ${role} Legacy Access to ${fullName}'s Gatheritup memories. You may now view and download all of their preserved memories, photos, videos, and stories.
-
-Please click the link below to access their memories:
-${legacyLink}
-
-This link is private and intended only for you. Please treat it with care.
-
-With deepest sympathy,
-The Gatheritup Team`
       if (user.trustee_email && user.trustee_name) {
         try {
           await sgMail.send({
             to: user.trustee_email,
             from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-            subject: `Legacy Access Granted — ${fullName}'s Memories`,
-            text: emailText(user.trustee_name, 'primary')
+            subject: `The Memories of ${fullName} — Legacy Access`,
+            html: buildEmail(user.trustee_name)
           })
         } catch(e) { console.error('Legacy email 1 error:', e.message) }
       }
@@ -766,8 +777,8 @@ The Gatheritup Team`
           await sgMail.send({
             to: user.trustee2_email,
             from: { name: 'Gatheritup', email: 'support@gatheritup.com' },
-            subject: `Legacy Access Granted — ${fullName}'s Memories`,
-            text: emailText(user.trustee2_name, 'secondary')
+            subject: `The Memories of ${fullName} — Legacy Access`,
+            html: buildEmail(user.trustee2_name)
           })
         } catch(e) { console.error('Legacy email 2 error:', e.message) }
       }
