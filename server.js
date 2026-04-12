@@ -1055,22 +1055,15 @@ app.post('/api/export', authRequired, async (req, res) => {
     if (filtered.length === 0) return res.status(400).json({ error: 'No memories found for this quarter.' })
 
     // Build email body
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
     let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
     emailBody += `<div style="background:#0dbbad;padding:24px 32px;border-radius:12px 12px 0 0;">`
     emailBody += `<h1 style="color:#fff;margin:0;font-size:24px;">Your Gatheritup Memories</h1>`
     emailBody += `<p style="color:#e0f7f5;margin:8px 0 0;font-size:16px;">Q${quarter} ${year} — ${quarterNames[quarter]}</p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
-    emailBody += `<p style="color:#6b7280;font-size:15px;margin:0 0 24px;">Dear ${user.first_name}, here are your memories from ${quarterNames[quarter]} ${year}. Click any download link to save your photos and videos.</p>`
-
-    const fmtDate = (s) => {
-      if (!s) return ''
-      const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
-      const [y, mo, d] = s.split('-')
-      if (d && d !== '01') return `${months[parseInt(mo,10)-1]} ${parseInt(d,10)}, ${y}`
-      if (mo) return `${months[parseInt(mo,10)-1]} ${y}`
-      return y
-    }
+    emailBody += `<p style="color:#374151;font-size:15px;margin:0 0 24px;line-height:1.7;">Hi ${user.first_name},<br><br>As per your request, here is your personal copy of your Q${quarter} ${year} memories.</p>`
 
     filtered.forEach((m, idx) => {
       const files = m.files || []
@@ -1079,52 +1072,29 @@ app.post('/api/export', authRequired, async (req, res) => {
       const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
 
       emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
-      emailBody += `<h2 style="font-size:18px;color:#1a1f2e;margin:0 0 4px;">${idx + 1}. ${title}</h2>`
-      emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 12px;">${fmtDate(m.date)}</p>`
+      emailBody += `<h2 style="font-size:17px;color:#1a1f2e;margin:0 0 16px;">${title}</h2>`
 
-      if (m.caption) {
-        emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 16px;font-style:italic;">${m.caption}</p>`
-      }
-
-      // Per-file captions
-      files.forEach(f => {
-        if (f.caption) {
-          emailBody += `<p style="font-size:14px;color:#6b7280;margin:0 0 8px;">📝 ${f.caption}</p>`
-        }
-      })
-
-      // Download links
       if (photos.length > 0) {
-        emailBody += `<div style="margin-top:12px;">`
-        emailBody += `<p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">📷 Photos (${photos.length})</p>`
         photos.forEach((f, i) => {
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">Download Photo ${i + 1}</a>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">📷 Download Photo ${i + 1}</a>`
         })
-        emailBody += `</div>`
       }
 
       if (videos.length > 0) {
-        emailBody += `<div style="margin-top:8px;">`
-        emailBody += `<p style="font-size:13px;font-weight:700;color:#0dbbad;margin:0 0 8px;">🎬 Videos (${videos.length})</p>`
         videos.forEach((f, i) => {
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">Download Video ${i + 1}</a>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">🎬 Download Video ${i + 1}</a>`
         })
-        emailBody += `</div>`
       }
 
       emailBody += `</div>`
     })
 
-    // Suggestions
+    // Bottom reassurance message
     emailBody += `<div style="background:#f0faf8;border-left:4px solid #0dbbad;border-radius:8px;padding:16px 20px;margin-top:8px;">`
-    emailBody += `<p style="font-size:15px;color:#085041;font-weight:700;margin:0 0 10px;">Once you receive this email, download your memories, photos and videos right away and save them somewhere safe.</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;font-weight:700;margin:0 0 8px;">Where to save your photos and videos:</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">📱 iPhone or iPad — Save to your Photos app or iCloud Drive</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0 0 6px;">💻 Windows or Mac — Save to your Documents folder or an external drive</p>`
-    emailBody += `<p style="font-size:14px;color:#085041;margin:0;">☁️ Cloud — Save to Google Drive or Dropbox for access anywhere</p>`
+    emailBody += `<p style="font-size:14px;color:#085041;margin:0;line-height:1.7;">Your memories are automatically saved to Gatheritup's secure cloud on ${today} — nothing to worry about. For extra peace of mind, this export, a personal copy of your stories, photos, and videos, is a secondary backup. Think of it like keeping an important document in a safe place at home — not required, but always a good idea.</p>`
     emailBody += `</div>`
 
-    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">Your memories are safely stored in Gatheritup's secure cloud. Export anytime from the app menu.</p>`
+    emailBody += `<p style="font-size:13px;color:#9ca3af;text-align:center;margin-top:24px;">The Gatheritup Team · <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#1a1f2e;padding:16px 32px;border-radius:0 0 12px 12px;text-align:center;">`
     emailBody += `<p style="color:rgba(255,255,255,0.6);font-size:13px;margin:0;">© 2026 Gatheritup.com · <a href="mailto:support@gatheritup.com" style="color:#0dbbad;">support@gatheritup.com</a></p>`
