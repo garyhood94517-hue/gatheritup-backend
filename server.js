@@ -1056,6 +1056,14 @@ app.post('/api/export', authRequired, async (req, res) => {
 
     // Build email body
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    const fmtDate = (s) => {
+      if (!s) return ''
+      const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+      const [y, mo, d] = s.split('-')
+      if (d && d !== '01') return `${months[parseInt(mo,10)-1]} ${parseInt(d,10)}, ${y}`
+      if (mo) return `${months[parseInt(mo,10)-1]} ${y}`
+      return y
+    }
 
     let emailBody = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#1a1f2e;">`
     emailBody += `<div style="background:#0dbbad;padding:24px 32px;border-radius:12px 12px 0 0;">`
@@ -1072,17 +1080,22 @@ app.post('/api/export', authRequired, async (req, res) => {
       const title = m.title && !m.title.startsWith('IMG_') && !m.title.startsWith('VID_') ? m.title : 'Untitled Memory'
 
       emailBody += `<div style="background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e5e7eb;">`
-      emailBody += `<h2 style="font-size:17px;color:#1a1f2e;margin:0 0 16px;">${title}</h2>`
+      emailBody += `<h2 style="font-size:17px;color:#1a1f2e;margin:0 0 4px;">${title}</h2>`
+      if (m.date) emailBody += `<p style="font-size:13px;color:#9ca3af;margin:0 0 10px;">${fmtDate(m.date)}</p>`
+      if (m.groups && m.groups.length > 0) emailBody += `<p style="font-size:12px;color:#0dbbad;margin:0 0 10px;">${m.groups.join(' · ')}</p>`
+      if (m.caption) emailBody += `<p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 14px;font-style:italic;">${m.caption}</p>`
 
       if (photos.length > 0) {
         photos.forEach((f, i) => {
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">📷 Download Photo ${i + 1}</a>`
+          if (f.caption) emailBody += `<p style="font-size:13px;color:#6b7280;margin:0 0 4px;font-style:italic;">📝 ${f.caption}</p>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;">📷 Download Photo ${i + 1}</a>`
         })
       }
 
       if (videos.length > 0) {
         videos.forEach((f, i) => {
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 6px 0;">🎬 Download Video ${i + 1}</a>`
+          if (f.caption) emailBody += `<p style="font-size:13px;color:#6b7280;margin:0 0 4px;font-style:italic;">📝 ${f.caption}</p>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;">🎬 Download Video ${i + 1}</a>`
         })
       }
 
