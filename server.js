@@ -1088,14 +1088,14 @@ app.post('/api/export', authRequired, async (req, res) => {
       if (photos.length > 0) {
         photos.forEach((f, i) => {
           if (f.caption) emailBody += `<p style="font-size:13px;color:#6b7280;margin:0 0 4px;font-style:italic;">📝 ${f.caption}</p>`
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;">📷 Download Photo ${i + 1}</a>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#0dbbad;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;font-weight:600;">📷 Save Photo ${i + 1} to my device</a>`
         })
       }
 
       if (videos.length > 0) {
         videos.forEach((f, i) => {
           if (f.caption) emailBody += `<p style="font-size:13px;color:#6b7280;margin:0 0 4px;font-style:italic;">📝 ${f.caption}</p>`
-          emailBody += `<a href="${f.url}" style="display:inline-block;background:#f0faf8;color:#0dbbad;border:1px solid #0dbbad;border-radius:6px;padding:6px 14px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;">🎬 Download Video ${i + 1}</a>`
+          emailBody += `<a href="${f.url}" style="display:inline-block;background:#0dbbad;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;text-decoration:none;margin:0 6px 10px 0;font-weight:600;">🎬 Save Video ${i + 1} to my device</a>`
         })
       }
 
