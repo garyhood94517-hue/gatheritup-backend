@@ -1071,7 +1071,7 @@ app.post('/api/export', authRequired, async (req, res) => {
     emailBody += `<p style="color:#e0f7f5;margin:8px 0 0;font-size:16px;">Q${quarter} ${year} — ${quarterNames[quarter]}</p>`
     emailBody += `</div>`
     emailBody += `<div style="background:#f9fafb;padding:24px 32px;">`
-    emailBody += `<p style="color:#374151;font-size:15px;margin:0 0 24px;line-height:1.7;">Hi ${user.first_name},<br><br>As per your request, here is your personal copy of your Q${quarter} ${year} memories.</p>`
+    emailBody += `<p style="color:#374151;font-size:15px;margin:0 0 24px;line-height:1.7;">Hi ${user.first_name},<br>As per your request, here is your personal copy of your Q${quarter} ${year} memories.</p>`
 
     filtered.forEach((m, idx) => {
       const files = m.files || []
