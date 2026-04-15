@@ -922,8 +922,8 @@ app.post('/api/admin/samples', adminAuth, async (req, res) => {
 
 // PUT update sample
 app.put('/api/admin/samples/:id', adminAuth, async (req, res) => {
-  const { title, date, caption, groups, display_order } = req.body
-  const { error } = await supabase.from('sample_memories').update({ title, date, caption, groups: groups || [], display_order: display_order || 0 }).eq('id', req.params.id)
+  const { title, date, caption, groups, files, display_order } = req.body
+  const { error } = await supabase.from('sample_memories').update({ title, date, caption, groups: groups || [], files: files || [], display_order: display_order || 0 }).eq('id', req.params.id)
   if (error) return res.status(500).json({ error: 'Could not update sample.' })
   res.json({ success: true })
 })
