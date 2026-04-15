@@ -896,6 +896,52 @@ app.post('/api/admin/settings', adminAuth, async (req, res) => {
   res.json({ success: true })
 })
 
+// ── SAMPLE MEMORIES API ──────────────────────────────────────────────────────
+
+// GET all sample memories
+app.get('/api/admin/samples', adminAuth, async (req, res) => {
+  const { data, error } = await supabase.from('sample_memories').select('*').order('display_order', { ascending: true })
+  if (error) return res.status(500).json({ error: 'Could not fetch samples.' })
+  res.json(data || [])
+})
+
+// GET samples for frontend (no auth required)
+app.get('/api/samples', async (req, res) => {
+  const { data, error } = await supabase.from('sample_memories').select('*').order('display_order', { ascending: true })
+  if (error) return res.status(500).json({ error: 'Could not fetch samples.' })
+  res.json(data || [])
+})
+
+// POST create new sample
+app.post('/api/admin/samples', adminAuth, async (req, res) => {
+  const { title, date, caption, groups, files, display_order } = req.body
+  const { data, error } = await supabase.from('sample_memories').insert({ title, date, caption, groups: groups || [], files: files || [], display_order: display_order || 0 }).select().single()
+  if (error) return res.status(500).json({ error: 'Could not create sample.' })
+  res.json({ success: true, sample: data })
+})
+
+// PUT update sample
+app.put('/api/admin/samples/:id', adminAuth, async (req, res) => {
+  const { title, date, caption, groups, display_order } = req.body
+  const { error } = await supabase.from('sample_memories').update({ title, date, caption, groups: groups || [], display_order: display_order || 0 }).eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: 'Could not update sample.' })
+  res.json({ success: true })
+})
+
+// DELETE sample
+app.delete('/api/admin/samples/:id', adminAuth, async (req, res) => {
+  const { error } = await supabase.from('sample_memories').delete().eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: 'Could not delete sample.' })
+  res.json({ success: true })
+})
+
+// POST restore samples for a specific user (marks their account to show samples again)
+app.post('/api/admin/users/:id/restore-samples', adminAuth, async (req, res) => {
+  const { error } = await supabase.from('users').update({ samples_dismissed: false }).eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: 'Could not restore samples.' })
+  res.json({ success: true })
+})
+
 app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body
   if (!email) return res.status(400).json({ error: 'Email is required.' })
