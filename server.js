@@ -574,6 +574,7 @@ app.post('/api/share', authRequired, async (req, res) => {
     expiresAt.setDate(expiresAt.getDate() + 30)
 
     // Save share record to Supabase using existing Cloudinary URL
+    const isFirstShare = !user.first_share_sent
     const { error: shareError } = await supabase.from('shares').insert({
       user_id: req.user.id,
       token: shareToken,
@@ -584,6 +585,7 @@ app.post('/api/share', authRequired, async (req, res) => {
       memory_date: date || null,
       sharer_name: user.first_name + ' ' + user.last_name,
       expires_at: expiresAt.toISOString(),
+      show_marketing: isFirstShare,
     })
 
     if (shareError) {
@@ -592,7 +594,6 @@ app.post('/api/share', authRequired, async (req, res) => {
     }
 
     // Track first share for marketing message
-    const isFirstShare = !user.first_share_sent
     if (isFirstShare) {
       await supabase.from('users').update({ first_share_sent: true }).eq('id', req.user.id)
     }
@@ -696,11 +697,12 @@ app.get('/share/:token', async (req, res) => {
 
     <p class="expiry">This memory was shared with love and will be available until ${expiresFormatted}.</p>
 
+    ${share.show_marketing ? `
     <div class="marketing">
       <p>${marketingText}</p>
       <p><strong>${marketingCta}</strong></p>
       <a href="https://gatheritup.com/signup.html">Start My Free Trial at Gatheritup.com</a>
-    </div>
+    </div>` : ''}
 
     <div class="footer">
       Shared with love using <a href="https://gatheritup.com" style="color:#bbb;">Gatheritup.com</a> — where families preserve their memories.
