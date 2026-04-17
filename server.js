@@ -563,36 +563,21 @@ app.post('/api/legacy-export', async (req, res) => {
 })
 
 // ── SHARE: Upload media and create share link ─────────────────────────────────
-app.post('/api/share', authRequired, upload.single('media'), async (req, res) => {
+app.post('/api/share', authRequired, async (req, res) => {
   try {
-    const { title, story, date, isVideo } = req.body
+    const { title, story, date, isVideo, mediaUrl } = req.body
     const { data: user } = await supabase.from('users').select('first_name, last_name, first_share_sent').eq('id', req.user.id).single()
-
-    // Upload to Cloudinary
-    const uploadResult = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          resource_type: isVideo === 'true' ? 'video' : 'image',
-          folder: 'gatheritup',
-        },
-        (error, result) => {
-          if (error) reject(error)
-          else resolve(result)
-        }
-      )
-      Readable.from(req.file.buffer).pipe(stream)
-    })
 
     // Generate share token and expiry (30 days)
     const shareToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 30)
 
-    // Save share record to Supabase
+    // Save share record to Supabase using existing Cloudinary URL
     const { error: shareError } = await supabase.from('shares').insert({
       user_id: req.user.id,
       token: shareToken,
-      media_url: uploadResult.secure_url,
+      media_url: mediaUrl || '',
       media_type: isVideo === 'true' ? 'video' : 'image',
       title: title || '',
       story: story || '',
