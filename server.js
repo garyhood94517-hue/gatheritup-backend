@@ -24,7 +24,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 })
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 750 * 1024 * 1024 } })
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -1040,33 +1040,31 @@ console.log('📅 Email scheduler started — runs daily at 9:00 AM UTC')
 // ── FILE UPLOAD ───────────────────────────────────────────────────────────────
 app.post('/api/upload', authRequired, upload.single('file'), async (req, res) => {
   try {
-    console.log('[UPLOAD] Request received from user:', req.user?.id)
-    if (!req.file) {
-      console.log('[UPLOAD] No file in request')
-      return res.status(400).json({ error: 'No file provided.' })
-    }
-    console.log('[UPLOAD] File received:', req.file.originalname, req.file.mimetype, req.file.size, 'bytes')
-    const ext = (req.file.originalname || 'file.jpg').split('.').pop() || 'jpg'
-    const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    console.log('[UPLOAD] Uploading to Supabase path:', path)
-    const { data: uploadData, error } = await supabase.storage
-      .from('memories')
-      .upload(path, req.file.buffer, {
-        contentType: req.file.mimetype,
-        upsert: true
-      })
-    if (error) {
-      console.error('[UPLOAD] Supabase Storage error:', JSON.stringify(error))
-      throw error
-    }
-    console.log('[UPLOAD] Supabase upload success:', JSON.stringify(uploadData))
-    const { data: { publicUrl } } = supabase.storage
-      .from('memories')
-      .getPublicUrl(path)
-    console.log('[UPLOAD] Public URL:', publicUrl)
-    res.json({ url: publicUrl, path })
+    if (!req.file) return res.status(400).json({ error: 'No file provided.' })
+    
+    const isVideo = req.file.mimetype.startsWith('video/')
+    const folder = `gatheritup/memories/${req.user.id}`
+    
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: isVideo ? 'video' : 'image',
+          use_filename: false,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error) reject(error)
+          else resolve(result)
+        }
+      )
+      stream.end(req.file.buffer)
+    })
+    
+    console.log('[UPLOAD] Cloudinary upload success:', uploadResult.secure_url)
+    res.json({ url: uploadResult.secure_url, path: uploadResult.public_id })
   } catch (err) {
-    console.error('[UPLOAD] Error:', err.message, err.stack)
+    console.error('[UPLOAD] Error:', err.message)
     res.status(500).json({ error: 'Upload failed: ' + err.message })
   }
 })
