@@ -1,10 +1,10 @@
-const express = require('express')
-const cors = require('cors')
-const dotenv = require('dotenv')
-const { createClient } = require('@supabase/supabase-js')
-const bcrypt = require('bcryptjs')
-const jwt = require('jsonwebtoken')
-const Stripe = require('stripe')
+import express from 'express'
+import cors from 'cors'
+import dotenv from 'dotenv'
+import { createClient } from '@supabase/supabase-js'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
+import Stripe from 'stripe'
 
 dotenv.config()
 
