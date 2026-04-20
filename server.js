@@ -1,10 +1,10 @@
-import express from 'express'
-import cors from 'cors'
-import dotenv from 'dotenv'
-import { createClient } from '@supabase/supabase-js'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
-import Stripe from 'stripe'
+const express = require('express')
+const cors = require('cors')
+const dotenv = require('dotenv')
+const { createClient } = require('@supabase/supabase-js')
+const bcrypt = require('bcryptjs')
+const jwt = require('jsonwebtoken')
+const Stripe = require('stripe')
 
 dotenv.config()
 
@@ -264,5 +264,3 @@ app.post('/api/trustee', authRequired, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Gatheritup API running on port ${PORT}`)
 })
-/ /   f r e s h   d e p l o y  
- 
