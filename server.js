@@ -24,6 +24,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 app.use(cors({
   origin: [
     'https://steady-klepon-508c5d.netlify.app',
+    'https://gatheritup.com',
     'http://localhost:5173'
   ]
 }))
